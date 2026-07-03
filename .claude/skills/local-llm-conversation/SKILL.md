@@ -17,9 +17,10 @@ description: Load before any work on llm.py, pipeline.py, or persona behavior.
 - Persona: loaded from the active shell profile's `persona.md` — a
   convention character, 1–3 sentence replies, all-ages, graceful
   "didn't catch that". Never hardcode persona text.
-- Identity-aware: read `person_id`/`new_person` from IPC — greet returning
-  people, notice new ones. Names learned in conversation are written back
-  **only** via `shared/people.py`.
+- Identity-aware: read `person_id`/`new_person_seq` (counter, increments
+  per auto-enroll) from IPC — greet returning people, notice new ones.
+  Names learned in conversation are written back **only** via
+  `shared/people.py`.
 - Ambient transcript (from audio-capture) may be summarized into the
   prompt as *overheard* scene context — never treated as direct address.
 - Conversation window resets when IPC reports person-absent.

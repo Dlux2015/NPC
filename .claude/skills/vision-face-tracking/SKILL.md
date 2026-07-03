@@ -14,7 +14,8 @@ description: Load before any work under /vision or touching face detection, reco
 - SFace/ArcFace embeddings → `people.db` via `shared/people.py` ONLY
   (fields: embedding, ID, first/last-seen, optional name).
 - Known face → publish `person_id` over IPC. Unknown face stable for a few
-  seconds → auto-enroll + publish `new_person` event.
+  seconds → auto-enroll + publish `new_person_seq` (counter, increments
+  per auto-enroll).
 - Runs low-frequency (~1Hz) in the tracking process; never in the
   per-frame hot loop.
 - Privacy: embeddings only (no images), local-only, provide a purge

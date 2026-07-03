@@ -7,7 +7,27 @@ agents (vision, calibrate.py) code against SimWorld/SimCamera as-is.
 Convention: azimuth/pan increase together (both "turn right"); elevation/
 tilt increase together (both "look up"). A face is centered in frame when
 pan == face.azimuth and tilt == face.elevation.
+
+Module-level factory functions (used by vision/camera.py's
+camera_source == "sim" and vision/calibrate.py's --auto mode) so the sim
+profile works with no separately-launched process:
+
+  open_camera(profile)      -> vision/camera.py's camera_source=="sim" hook.
+  ground_truth_faces(frame) -> SyntheticDetector-compatible ground_truth_fn
+                                for calibrate.py --auto.
+
+Both lazily build-or-reuse one process-wide default harness: a SimWorld
+with one face plus a sim/servo_sim.py SimServoServer -- the same
+TCP-socket-speaking digital twin the "socket" serial_transport profile
+already expects on 127.0.0.1:$CBOT_SIM_PORT (default 8735). Building the
+harness on first use of *either* function (camera or ground truth) and
+binding the server's listening socket synchronously in its constructor
+means the port is already accepting connections before anything tries to
+connect to it, regardless of which of camera/transport a caller opens
+first.
 """
+import threading
+
 import numpy as np
 
 BG_COLOR = (40, 40, 40)      # BGR flat background
@@ -92,3 +112,68 @@ class SimCamera(object):
 
     def release(self):
         pass
+
+
+# ---------------------------------------------------------------------------
+# Default out-of-the-box harness for vision/camera.py + vision/calibrate.py
+# ---------------------------------------------------------------------------
+
+DEFAULT_FACE_AZIMUTH_DEG = 15.0
+DEFAULT_FACE_ELEVATION_DEG = 0.0
+DEFAULT_FACE_SIZE_PX = 80
+DEFAULT_GROUND_TRUTH_SCORE = 0.95
+
+_harness_lock = threading.Lock()
+_default_world = None
+_default_server = None
+
+
+def _default_harness():
+    """Builds, once per process, a SimWorld (one face) + SimServoServer
+    (real TCP twin, listening on 127.0.0.1:$CBOT_SIM_PORT) and returns
+    (world, server) on every call thereafter -- reused by both
+    open_camera() and ground_truth_faces() so they see the same twin."""
+    global _default_world, _default_server
+    with _harness_lock:
+        if _default_world is None:
+            _default_world = SimWorld()
+            _default_world.add_face(
+                azimuth_deg=DEFAULT_FACE_AZIMUTH_DEG,
+                elevation_deg=DEFAULT_FACE_ELEVATION_DEG,
+                size_px=DEFAULT_FACE_SIZE_PX,
+                face_id=0,
+            )
+        if _default_server is None:
+            from sim.servo_sim import SimServoServer
+            # Binding/listen()ing happens synchronously inside __init__, so
+            # the port is already accepting connections as soon as this
+            # returns -- before the accept/tick thread below even starts.
+            _default_server = SimServoServer()
+            threading.Thread(
+                target=_default_server.serve_forever, daemon=True
+            ).start()
+    return _default_world, _default_server
+
+
+def open_camera(profile):
+    """vision/camera.py's camera_source == "sim" hook: profile is unused
+    (the default harness is a fixed single-face bench world) -- accepted
+    for symmetry with the other _open_* factories in vision/camera.py.
+    Returns a SimCamera (read()/release()) backed by the default harness.
+    """
+    world, server = _default_harness()
+    return SimCamera(world, server.sim)
+
+
+def ground_truth_faces(frame_bgr):
+    """SyntheticDetector-compatible ground_truth_fn for
+    vision/calibrate.py --auto: (x, y, w, h, score) tuples for the default
+    harness's faces, at the harness's servo twin's CURRENT (eased) angles
+    -- matching what a real detector would see through SimCamera.read()."""
+    world, server = _default_harness()
+    pan = server.sim.head.pan.current
+    tilt = server.sim.head.tilt.current
+    return [
+        (x, y, w, h, DEFAULT_GROUND_TRUTH_SCORE)
+        for (_face_id, x, y, w, h) in world.ground_truth(pan, tilt)
+    ]

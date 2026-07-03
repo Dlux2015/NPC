@@ -15,15 +15,18 @@ logic on the dev PC.
 Serial transport: USB-CDC. The DevKitC-1's native USB port exposes the
 MicroPython REPL as a CDC serial device; sys.stdin/sys.stdout ARE that
 port, so no UART wiring is needed — the same cable that flashes the board
-carries the protocol. We read stdin non-blocking via select.poll (the
-documented MicroPython pattern for USB-CDC input) and write replies to
-sys.stdout.
+carries the protocol. We read stdin non-blocking via select.poll's
+ipoll() (the documented MicroPython pattern for USB-CDC input: an
+allocation-light iterator, unlike poll()'s per-call list) and write
+replies to sys.stdout.
 
 Control loop: 50Hz via time.ticks_ms/ticks_diff (wrap-safe). Steady state
-is allocation-free: the read buffer is pre-allocated and no objects are
-created on ticks where no serial line completes (string allocs happen only
-when a full line arrives or a 2Hz angle report goes out), so GC pauses
-cannot stutter the servos.
+is minimal-allocation: the read buffer is pre-allocated, serial draining
+uses ipoll() rather than poll() (no fresh list every tick), and no other
+objects are created on ticks where no serial line completes (string
+allocs happen only when a full line arrives or a 2Hz angle report goes
+out) -- confirm with gc.mem_alloc() deltas at the Phase 1 bench rather
+than assuming zero allocation.
 
 Idle scan on heartbeat silence is owned by easing.HeadController
 (contract §4.3) — nothing here duplicates it; we just keep feeding it
@@ -38,6 +41,23 @@ try:
     import easing                     # board root (deployed flat)
 except ImportError:
     from firmware import easing          # CPython dev checkout
+
+# Calibrated per-shell soft limits (SS3.5 step 3 / calibrate.py's
+# write_firmware_limits): deployed flat as firmware_limits.py alongside
+# main.py (see firmware/README.md). Falls back to serial_protocol's
+# bench-safe defaults if this shell hasn't been calibrated yet (or on
+# CPython, where it's simply never deployed).
+try:
+    import firmware_limits            # board root (deployed flat, optional)
+    PAN_MIN = firmware_limits.PAN_MIN
+    PAN_MAX = firmware_limits.PAN_MAX
+    TILT_MIN = firmware_limits.TILT_MIN
+    TILT_MAX = firmware_limits.TILT_MAX
+except ImportError:
+    PAN_MIN = serial_protocol.PAN_MIN
+    PAN_MAX = serial_protocol.PAN_MAX
+    TILT_MIN = serial_protocol.TILT_MIN
+    TILT_MAX = serial_protocol.TILT_MAX
 
 # ---------------------------------------------------------------- pins/PWM
 # Wiring (document of record until calibration provisions a profile):
@@ -141,10 +161,11 @@ class CommandHandler(object):
 
 
 def make_head():
-    """Build the HeadController with protocol-limit-clamped axes."""
-    pan = easing.ServoAxis(serial_protocol.PAN_MIN, serial_protocol.PAN_MAX)
-    tilt = easing.ServoAxis(serial_protocol.TILT_MIN,
-                            serial_protocol.TILT_MAX)
+    """Build the HeadController with calibrated-limit-clamped axes (falls
+    back to serial_protocol's bench-safe defaults if this shell has no
+    firmware_limits.py yet -- see the import block above)."""
+    pan = easing.ServoAxis(PAN_MIN, PAN_MAX)
+    tilt = easing.ServoAxis(TILT_MIN, TILT_MAX)
     return easing.HeadController(
         pan, tilt,
         heartbeat_timeout_s=serial_protocol.HEARTBEAT_TIMEOUT_S)
@@ -171,6 +192,16 @@ def start():
     poller = select.poll()
     poller.register(sys.stdin, select.POLLIN)
 
+    # ipoll() is MicroPython's allocation-light iterator form of poll():
+    # poll(0) builds and returns a fresh list every single 50Hz tick;
+    # ipoll(0) yields the same ready-events without that per-call list.
+    # CPython's select.poll has no ipoll -- fall back to poll() so this
+    # still runs if start() is ever exercised on the dev PC (tests never
+    # call start(); see the module docstring).
+    ipoll = getattr(poller, "ipoll", None)
+    if ipoll is None:  # pragma: no cover - MicroPython path is the target
+        ipoll = poller.poll
+
     stdin = sys.stdin
     stdout = sys.stdout
 
@@ -183,16 +214,23 @@ def start():
     now_s = 0.0                       # wrap-safe accumulated seconds
 
     while True:
-        # --- drain serial (non-blocking; poll(0) returns immediately)
-        while poller.poll(0):
-            ch = stdin.read(1)
-            if not ch:
-                break
-            line = lines.feed(ch)
-            if line is not None:
-                reply = handler.handle_line(line, now_s)
-                if reply is not None:
-                    stdout.write(reply)
+        # --- drain serial (non-blocking; ipoll(0) returns immediately,
+        # yielding ready-events without allocating a list). Re-checked in
+        # a loop so every byte already buffered this tick gets drained,
+        # not just one.
+        more = True
+        while more:
+            more = False
+            for _ in ipoll(0):
+                more = True
+                ch = stdin.read(1)
+                if not ch:
+                    break
+                line = lines.feed(ch)
+                if line is not None:
+                    reply = handler.handle_line(line, now_s)
+                    if reply is not None:
+                        stdout.write(reply)
 
         # --- fixed-rate control step (wrap-safe via ticks_diff)
         now = time.ticks_ms()

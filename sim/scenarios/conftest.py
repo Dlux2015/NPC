@@ -1,5 +1,17 @@
 """Shared fixtures for sim scenarios. Deterministic, in-process (no
-sockets), numpy + stdlib only."""
+sockets), numpy + stdlib only.
+
+NOTE (integration review, F2): the `track` fixture below and the scenarios
+built on it (test_closed_loop.py, test_moving_target.py) close the loop
+with a bespoke, ad hoc incremental P-controller -- useful sim-
+infrastructure tests that exercise sim/world.py + sim/servo_sim.py
+themselves, but they never call vision/tracking.py's TrackingApp, so they
+do NOT prove the shipping product controller (absolute pan_center +
+PID(pixel_error), vision/tracking.py) closes the loop against the servo
+model. That proof lives in test_product_loop.py, which drives the real
+TrackingApp end-to-end instead. Keep both: these stay as sim-
+infrastructure tests, test_product_loop.py is the product-loop proof.
+"""
 import os
 import sys
 

@@ -7,21 +7,29 @@ default "sim"). REFUSES to start without calibration.json -- there are no
 hardcoded pixel->degree fallbacks (SS3.1 hard rule).
 
 Hard rules enforced here (ORCHESTRATION.md SS3.1 / skills/vision-face-tracking):
-  - The frame loop never blocks: no LLM/disk/network calls in step();
-    transport writes are best-effort/non-blocking (vision/transport.py);
-    IPC updates are throttled to <=10Hz.
+  - The frame loop never blocks and makes ZERO filesystem calls: no
+    LLM/disk/network calls in step(); transport writes are best-effort/
+    non-blocking (vision/transport.py); IPC updates go through
+    shared.ipc.ThreadedStateWriter.publish() (in-memory hand-off; a
+    background daemon thread owns the actual disk write, coalesced to
+    <=10Hz) instead of touching SharedState directly from step().
   - Pixel->degree conversion only via the measured deg_per_px from
     calibration.json.
   - PID outputs target angles, never PWM; serial only via
     shared/serial_protocol.py.
   - Target persistence holds one face for >= hold_s before allowing a
     switch to a different one (no crowd-snapping).
-  - Recognition (people.py match/enroll) runs at ~1Hz, never per-frame.
+  - Recognition (people.py match/enroll, and eventually Phase 6's SFace
+    inference + SQLite scan) runs on a dedicated background worker thread,
+    never in the frame thread: step() only crops the face (cheap array
+    slicing, no I/O) and hands it off non-blocking (dropped if the worker
+    is still busy on a previous crop) at ~1Hz.
 """
 import argparse
 import json
 import os
 import sys
+import threading
 import time
 
 from shared import ipc, serial_protocol
@@ -30,7 +38,20 @@ from vision.paths import profile_dir, load_profile_yaml
 from vision.pid import PID
 from vision.transport import open_transport
 
-DEFAULT_PID_GAINS = {"kp": 0.6, "ki": 0.05, "kd": 0.05}
+# Retuned during the F2 integration fix (sim/scenarios/test_product_loop.py):
+# this loop recomputes an ABSOLUTE target every tick from the instantaneous
+# pixel offset (pan_center + PID(error)), so a pure-P term settles at a
+# fixed FRACTION of the way to center (steady-state error = azimuth/(1+kp)
+# -- kp=0.6 leaves ~60% of the offset uncorrected) and the old ki=0.05 was
+# too small to close that gap in anything under ~15s. The previous values
+# were never validated end-to-end (that was the whole point of F2) --
+# kp=0.8/ki=0.7/kd=0.0 was chosen empirically against sim/world.py's
+# digital twin: monotonic convergence, no oscillation, well inside 30px by
+# 5s. kd=0 because the per-frame error is recomputed fresh from a
+# pixel-quantized detection each tick (not a smooth continuous signal), and
+# any nonzero kd here amplified that quantization into oscillation rather
+# than damping it.
+DEFAULT_PID_GAINS = {"kp": 0.8, "ki": 0.7, "kd": 0.0}
 
 
 class CalibrationError(RuntimeError):
@@ -175,6 +196,12 @@ class TrackingApp:
         self.in_range_frac = in_range_frac
         self.clock = clock
 
+        # SS3.1: the frame loop makes zero filesystem calls. publish() is a
+        # non-blocking in-memory hand-off; the writer's own daemon thread
+        # owns the actual SharedState.update() disk write, coalesced to
+        # <=1/ipc_min_interval Hz (see shared/ipc.py).
+        self._writer = ipc.ThreadedStateWriter(state, interval_s=ipc_min_interval)
+
         self.tracker = TargetTracker(hold_s=hold_s, clock=clock)
 
         axes = calibration["axes"]
@@ -203,13 +230,26 @@ class TrackingApp:
         self.pid_tilt = PID(output_limits=tilt_out_limits,
                              deadband=deadband_deg, **tilt_gains)
 
-        self._ipc_min_interval = ipc_min_interval
-        self._last_ipc_update = float("-inf")
-
         self.recognition_interval_s = recognition_interval_s
         self.face_crop_cb = face_crop_cb
         self.people_store = people_store
         self._last_recognition = float("-inf")
+
+        # Recognition worker (F5): the frame thread only crops (cheap array
+        # slicing, no I/O) and hands the crop off non-blocking; a dedicated
+        # background thread owns people.py access (match/enroll, and
+        # eventually Phase 6's SFace inference) and publishes results via
+        # the ThreadedStateWriter above -- never the frame thread.
+        self._recognition_job = None
+        self._recognition_lock = threading.Lock()
+        self._recognition_wake = threading.Event()
+        self._recognition_busy = threading.Event()
+        self._recognition_stop = threading.Event()
+        self._recognition_thread = None
+        if self.face_crop_cb is not None and self.people_store is not None:
+            self._recognition_thread = threading.Thread(
+                target=self._recognition_worker, daemon=True)
+            self._recognition_thread.start()
 
     def step(self):
         """One frame. Returns a small status dict, or None if the camera
@@ -250,16 +290,15 @@ class TrackingApp:
             self.pid_pan.reset()
             self.pid_tilt.reset()
 
-        if now - self._last_ipc_update >= self._ipc_min_interval:
-            self.state.update(person_present=person_present,
-                               person_in_range=person_in_range)
-            self._last_ipc_update = now
+        # Non-blocking hand-off; the ThreadedStateWriter's own thread owns
+        # the disk write (SS3.1: no filesystem calls in the frame loop).
+        self._writer.publish(person_present=person_present,
+                              person_in_range=person_in_range)
 
-        if (target is not None and self.face_crop_cb is not None
-                and self.people_store is not None
+        if (target is not None
                 and now - self._last_recognition >= self.recognition_interval_s):
             self._last_recognition = now
-            self._run_recognition(frame, target)
+            self._submit_recognition(frame, target)
 
         return {
             "target": target,
@@ -269,20 +308,69 @@ class TrackingApp:
             "tilt_out": tilt_out,
         }
 
-    def _run_recognition(self, frame, target):
+    def _submit_recognition(self, frame, target):
+        """Frame-thread side of the recognition hand-off: crop (cheap, no
+        I/O) and wake the worker, dropping the crop if the worker is still
+        busy on a previous one -- never blocks the frame loop."""
+        if self.face_crop_cb is None or self.people_store is None:
+            return
+        if self._recognition_busy.is_set():
+            return  # worker still busy; drop this frame's crop
         crop = self.face_crop_cb(frame, target)
         if crop is None:
             return
+        self._recognition_busy.set()
+        with self._recognition_lock:
+            self._recognition_job = crop
+        self._recognition_wake.set()
+
+    def _recognition_worker(self):
+        """Background worker thread (F5): owns all people.py access."""
+        while not self._recognition_stop.is_set():
+            self._recognition_wake.wait()
+            self._recognition_wake.clear()
+            if self._recognition_stop.is_set():
+                break
+            with self._recognition_lock:
+                crop = self._recognition_job
+                self._recognition_job = None
+            try:
+                if crop is not None:
+                    self._run_recognition(crop)
+            finally:
+                self._recognition_busy.clear()
+
+    def _run_recognition(self, crop):
+        """Runs on the recognition worker thread ONLY -- never the frame
+        thread. Publishes results via the ThreadedStateWriter, never a
+        direct SharedState write."""
         embedding = embed_face(crop)
         if embedding is None:
             return  # stub until Phase 6
         match = self.people_store.match(embedding)
         if match is not None:
-            self.state.update(person_id=str(match[0]))
+            self._writer.publish(person_id=str(match[0]))
         else:
             new_id = self.people_store.enroll(embedding)
             seq = self.state.get("new_person_seq") + 1
-            self.state.update(person_id=str(new_id), new_person_seq=seq)
+            self._writer.publish(person_id=str(new_id), new_person_seq=seq)
+
+    def _wait_recognition_idle(self, timeout=1.0):
+        """Test helper: blocks until any in-flight recognition job the
+        worker picked up has finished. The frame loop never calls this."""
+        deadline = time.time() + timeout
+        while self._recognition_busy.is_set() and time.time() < deadline:
+            time.sleep(0.001)
+
+    def close(self):
+        """Stops background threads. Both are daemons (harmless to skip in
+        short scripts/tests), but call this for a clean shutdown of a
+        long-running process."""
+        if self._recognition_thread is not None:
+            self._recognition_stop.set()
+            self._recognition_wake.set()
+            self._recognition_thread.join(timeout=1.0)
+        self._writer.stop()
 
     def run_forever(self, target_hz=30.0, stop_flag=None):
         period = 1.0 / target_hz
@@ -332,7 +420,10 @@ def main(argv=None):
 
     app = TrackingApp(camera, detector, transport, state, calibration,
                        face_crop_cb=crop_face, people_store=people_store)
-    app.run_forever(target_hz=args.fps)
+    try:
+        app.run_forever(target_hz=args.fps)
+    finally:
+        app.close()
     return 0
 
 

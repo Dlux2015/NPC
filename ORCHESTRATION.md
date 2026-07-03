@@ -44,7 +44,7 @@ Haiku for diligence; Fable 5 for anything genuinely hard.
   **CPU** (GPU is the LLM's, §3.4); verify via `tegrastats`.
 - Recognition (core goal): SFace/ArcFace embeddings → `people.db`
   (embedding, ID, first/last-seen, name). Known → publish `person_id`;
-  unknown stable a few s → auto-enroll + `new_person` event. Runs
+  unknown stable a few s → auto-enroll + bump `new_person_seq`. Runs
   low-frequency — never in the per-frame hot loop. Embeddings only (no
   images), local, purge command.
 - PID: pixel error → degrees via **measured** deg/px from
@@ -123,9 +123,9 @@ profile — no `if simulation:` branches.
    `P:<deg> T:<deg>\n`, degrees only, limits, heartbeat/timeout, angle
    reports. Pluggable transport: USB serial or sim socket, same bytes.
 2. **IPC** (`shared/ipc.py`): `person_present`, `person_in_range`,
-   `person_id`, `new_person`, `actively_speaking`, `conversation_active`,
-   ambient-transcript handoff. File/socket-simple first; Redis only if it
-   earns its footprint.
+   `person_id`, `new_person_seq` (counter, increments per auto-enroll),
+   `actively_speaking`, `conversation_active`, ambient-transcript handoff.
+   File/socket-simple first; Redis only if it earns its footprint.
 3. **Idle scan:** ESP32 owns it (on serial silence); vision just stops
    sending.
 4. **Identity** (`shared/people.py`): sole reader/writer of `people.db`.

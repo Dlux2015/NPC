@@ -1,3 +1,5 @@
+import threading
+
 import numpy as np
 import pytest
 
@@ -89,9 +91,16 @@ def test_face_present_sends_target_and_updates_ipc(tmp_path):
     parsed = serial_protocol.parse_line(transport.lines[0])
     assert parsed[0] == "target"
 
+    # step() only ever calls writer.publish() (in-memory, non-blocking);
+    # flush() is the test/shutdown-only way to force the pending publish
+    # to disk without waiting on the real background writer thread (see
+    # shared/tests/test_ipc.py for the non-blocking/coalescing contract
+    # itself).
+    app._writer.flush()
     ipc_state = state.read()
     assert ipc_state["person_present"] is True
     assert ipc_state["person_in_range"] is True
+    app.close()
 
 
 def test_no_face_sends_nothing_and_reports_absent(tmp_path):
@@ -106,7 +115,9 @@ def test_no_face_sends_nothing_and_reports_absent(tmp_path):
     assert result["person_present"] is False
     assert result["person_in_range"] is False
     assert transport.lines == []  # ESP32 owns idle scan on silence
+    app._writer.flush()
     assert state.read()["person_present"] is False
+    app.close()
 
 
 def test_small_face_is_present_but_not_in_range(tmp_path):
@@ -123,33 +134,64 @@ def test_small_face_is_present_but_not_in_range(tmp_path):
     assert result["person_in_range"] is False
 
 
-def test_ipc_updates_are_throttled_to_min_interval(tmp_path):
+def test_step_never_writes_ipc_directly_writer_owns_the_disk_call(tmp_path):
+    """F4: the frame loop makes zero filesystem calls. step() must only
+    ever reach IPC through writer.publish() (in-memory, same thread);
+    SharedState.update (the actual disk write) must only ever run on the
+    ThreadedStateWriter's own background thread -- never synchronously on
+    the thread that called step(). shared/tests/test_ipc.py covers the
+    writer's non-blocking/coalescing contract in isolation; this is the
+    integration point proving TrackingApp actually uses it instead of the
+    old direct SharedState.update() calls."""
     detections = {"boxes": [(250, 150, 150, 150, 0.9)]}
     camera = FakeCamera()
     detector = SyntheticDetector(lambda f: detections["boxes"])
     transport = FakeTransport()
     state = ipc.SharedState(str(tmp_path / "state.json"))
 
+    caller_thread_ids = []
+    orig_update = state.update
+
+    def spy_update(**kwargs):
+        caller_thread_ids.append(threading.get_ident())
+        orig_update(**kwargs)
+
+    state.update = spy_update
+
     box, clock = _clock_box(0.0)
-    # hold_s kept tiny and distinct from ipc_min_interval so this test
-    # isolates IPC throttling from vision.tracking.TargetTracker's
-    # separate (and much longer, 3s default) target-persistence hold.
     app = TrackingApp(camera, detector, transport, state, _calibration(),
                        clock=clock, ipc_min_interval=0.1, hold_s=0.05)
+    assert isinstance(app._writer, ipc.ThreadedStateWriter)
+    main_thread_id = threading.get_ident()
 
-    app.step()  # t=0.0: first update always happens
-    assert state.read()["person_present"] is True
+    try:
+        app.step()  # publishes person_present=True -- no direct disk write
+        detections["boxes"] = []
+        box[0] = 0.05
+        app.step()  # publishes person_present=False
 
-    detections["boxes"] = []  # face "disappears"...
-    app.step()  # ...but clock hasn't advanced -> IPC write is throttled
-    assert state.read()["person_present"] is True  # stale, not yet updated
+        # Any SharedState.update calls the background thread already made
+        # on its own initiative must NOT have run on this (step()'s) thread.
+        assert all(tid != main_thread_id for tid in caller_thread_ids), (
+            "SharedState.update ran synchronously on step()'s thread -- "
+            "the frame loop touched disk directly"
+        )
 
-    box[0] = 0.2  # advance past ipc_min_interval
-    app.step()
-    assert state.read()["person_present"] is False  # now it catches up
+        app._writer.flush()  # force the latest published values to disk
+        assert state.read()["person_present"] is False
+        assert caller_thread_ids, "writer never reached SharedState.update"
+    finally:
+        app.close()
 
 
-def test_recognition_hook_runs_at_configured_interval_and_is_inert_stub(tmp_path):
+def test_recognition_hook_runs_on_worker_thread_and_is_inert_stub(tmp_path):
+    """F5: crop_face (cheap, no I/O) still happens synchronously in
+    step(), on schedule -- but the actual match/enroll work is handed off
+    to the background recognition worker thread, never run inline. We
+    detect a (should-never-happen, since embed_face is still a Phase-6
+    stub returning None) DummyPeopleStore call via threading.excepthook
+    since an AssertionError raised on the worker thread would otherwise
+    not fail this (main) thread's test."""
     bbox = (250, 150, 150, 150, 0.9)
     camera = FakeCamera()
     detector = SyntheticDetector(lambda f: [bbox])
@@ -175,13 +217,27 @@ def test_recognition_hook_runs_at_configured_interval_and_is_inert_stub(tmp_path
                        people_store=DummyPeopleStore(),
                        recognition_interval_s=1.0)
 
-    app.step()  # t=0: first recognition attempt always fires
-    assert len(crop_calls) == 1
+    worker_exceptions = []
+    orig_hook = threading.excepthook
+    threading.excepthook = worker_exceptions.append
+    try:
+        app.step()  # t=0: first recognition attempt always fires
+        app._wait_recognition_idle()
+        assert len(crop_calls) == 1
 
-    box[0] = 0.5
-    app.step()  # within the 1s interval -> no second attempt
-    assert len(crop_calls) == 1
+        box[0] = 0.5
+        app.step()  # within the 1s interval -> no second attempt
+        assert len(crop_calls) == 1
 
-    box[0] = 1.1
-    app.step()  # interval elapsed -> fires again
-    assert len(crop_calls) == 2
+        box[0] = 1.1
+        app.step()  # interval elapsed -> fires again
+        app._wait_recognition_idle()
+        assert len(crop_calls) == 2
+
+        assert worker_exceptions == [], (
+            "DummyPeopleStore.match/enroll ran on the worker thread -- "
+            "embed_face's Phase-6 stub should still make this dead code"
+        )
+    finally:
+        threading.excepthook = orig_hook
+        app.close()

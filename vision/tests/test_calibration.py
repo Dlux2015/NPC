@@ -90,6 +90,16 @@ def test_auto_calibration_round_trip(tmp_path):
     on_disk = json.loads(written_path.read_text())
     assert on_disk == calibration
 
+    # F7: one set of soft-limit numbers for firmware too.
+    limits_path = pdir / "firmware_limits.py"
+    assert limits_path.exists()
+    limits_ns = {}
+    exec(compile(limits_path.read_text(), str(limits_path), "exec"), limits_ns)
+    assert limits_ns["PAN_MIN"] == calibration["axes"]["pan"]["min"]
+    assert limits_ns["PAN_MAX"] == calibration["axes"]["pan"]["max"]
+    assert limits_ns["TILT_MIN"] == calibration["axes"]["tilt"]["min"]
+    assert limits_ns["TILT_MAX"] == calibration["axes"]["tilt"]["max"]
+
 
 def test_auto_calibration_writes_versioned_file_per_profile(tmp_path):
     profiles_root, pdir = _write_profile(tmp_path, name="another")

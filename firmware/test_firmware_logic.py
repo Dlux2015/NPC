@@ -208,3 +208,51 @@ def test_no_hardware_modules_needed_at_import():
     assert main.PWM_FREQ_HZ == 50
     assert main.LOOP_HZ == 50
     assert "machine" not in sys.modules
+
+
+# ------------------------------------------------- calibrated soft limits
+
+def test_firmware_limits_falls_back_to_protocol_defaults_when_absent():
+    # This checkout has no firmware_limits.py deployed (that only exists
+    # per-profile, written by vision/calibrate.py and copied to the board
+    # root per firmware/README.md) -- main.py's try/except must fall back
+    # to shared/serial_protocol.py's bench-safe defaults.
+    assert "firmware_limits" not in sys.modules
+    assert main.PAN_MIN == serial_protocol.PAN_MIN
+    assert main.PAN_MAX == serial_protocol.PAN_MAX
+    assert main.TILT_MIN == serial_protocol.TILT_MIN
+    assert main.TILT_MAX == serial_protocol.TILT_MAX
+
+
+def test_make_head_axes_clamped_to_firmware_limits():
+    head = main.make_head()
+    assert head.pan.lo == main.PAN_MIN
+    assert head.pan.hi == main.PAN_MAX
+    assert head.tilt.lo == main.TILT_MIN
+    assert head.tilt.hi == main.TILT_MAX
+
+
+def test_firmware_limits_overrides_defaults_when_present(tmp_path, monkeypatch):
+    # Simulates a calibrated shell: a firmware_limits.py deployed flat next
+    # to main.py (see vision/calibrate.py's write_firmware_limits and
+    # firmware/README.md's deploy step) must override the protocol
+    # defaults, not just fail to be found.
+    (tmp_path / "firmware_limits.py").write_text(
+        "PAN_MIN = -20.0\nPAN_MAX = 20.0\nTILT_MIN = -10.0\nTILT_MAX = 10.0\n"
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    sys.modules.pop("firmware_limits", None)
+    sys.modules.pop("main", None)
+    try:
+        import main as main_with_limits  # noqa: PLC0414 - re-import w/ limits on path
+        assert main_with_limits.PAN_MIN == -20.0
+        assert main_with_limits.PAN_MAX == 20.0
+        assert main_with_limits.TILT_MIN == -10.0
+        assert main_with_limits.TILT_MAX == 10.0
+        head = main_with_limits.make_head()
+        assert head.pan.lo == -20.0 and head.pan.hi == 20.0
+        assert head.tilt.lo == -10.0 and head.tilt.hi == 10.0
+    finally:
+        sys.modules.pop("main", None)
+        sys.modules.pop("firmware_limits", None)
+        import main  # noqa: F401 - restore the plain (no-limits) module
