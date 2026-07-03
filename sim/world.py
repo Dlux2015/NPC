@@ -31,7 +31,26 @@ import threading
 import numpy as np
 
 BG_COLOR = (40, 40, 40)      # BGR flat background
-FACE_COLOR = (170, 190, 210)  # BGR pale sprite fill
+FACE_COLOR = (170, 190, 210)  # BGR pale sprite fill -- default single-face tint
+
+
+def face_color(face_id):
+    """Deterministic, mutually-distinguishable BGR fill per face_id, well
+    clear of BG_COLOR -- lets a face_crop_cb-derived crop be decoded back
+    to *which* world face it came from. Stands in for a real embedding's
+    identity signal in sim scenarios that need to exercise shared/people.py's
+    match/enroll path (sim/world.py is sim-only harness code, never product
+    code, so per-face tinting is a legitimate swap-point implementation
+    detail, not an "if simulation:" branch in product code). face_id=0 ->
+    FACE_COLOR, for backward compatibility with single-face scenarios/tests
+    written before this existed."""
+    fid = int(face_id)
+    if fid == 0:
+        return FACE_COLOR
+    b = 100 + (37 * (fid + 1) + 60) % 156
+    g = 100 + (91 * (fid + 1) + 30) % 156
+    r = 100 + (149 * (fid + 1) + 10) % 156
+    return (b, g, r)
 
 
 class SimWorld(object):
@@ -69,7 +88,7 @@ class SimWorld(object):
         """-> uint8 BGR frame (frame_h, frame_w, 3), cv2.imshow-compatible."""
         frame = np.empty((self.frame_h, self.frame_w, 3), dtype=np.uint8)
         frame[:, :] = BG_COLOR
-        for face in self._faces.values():
+        for face_id, face in self._faces.items():
             x, y = self._project(pan_deg, tilt_deg, face)
             half = face["size"] / 2.0
             x0, x1 = int(round(x - half)), int(round(x + half))
@@ -77,7 +96,7 @@ class SimWorld(object):
             xa, xb = max(0, x0), min(self.frame_w, x1)
             ya, yb = max(0, y0), min(self.frame_h, y1)
             if xa < xb and ya < yb:
-                frame[ya:yb, xa:xb] = FACE_COLOR
+                frame[ya:yb, xa:xb] = face_color(face_id)
         return frame
 
     def ground_truth(self, pan_deg, tilt_deg):

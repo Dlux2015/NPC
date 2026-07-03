@@ -50,7 +50,17 @@ class SharedState:
         try:
             with os.fdopen(fd, "w") as f:
                 json.dump(data, f)
-            os.replace(tmp, self.path)  # atomic on POSIX and Windows
+            # os.replace is atomic, but on Windows it raises PermissionError
+            # (sharing violation) if a concurrent reader/writer briefly holds
+            # the destination. Transient by nature: retry, then give up loud.
+            for attempt in range(50):
+                try:
+                    os.replace(tmp, self.path)
+                    break
+                except PermissionError:
+                    if attempt == 49:
+                        raise
+                    time.sleep(0.002)
         finally:
             if os.path.exists(tmp):
                 os.unlink(tmp)

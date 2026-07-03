@@ -186,7 +186,7 @@ class TrackingApp:
     def __init__(self, camera, detector, transport, state, calibration,
                  hold_s=3.0, in_range_frac=0.25, pid_gains=None,
                  recognition_interval_s=1.0, face_crop_cb=None,
-                 people_store=None, clock=time.monotonic,
+                 people_store=None, embed_cb=None, clock=time.monotonic,
                  ipc_min_interval=0.1):
         self.camera = camera
         self.detector = detector
@@ -233,7 +233,11 @@ class TrackingApp:
         self.recognition_interval_s = recognition_interval_s
         self.face_crop_cb = face_crop_cb
         self.people_store = people_store
+        # Injectable embedder (sim/tests inject a deterministic one);
+        # defaults to module-level embed_face (real SFace at Phase 6).
+        self.embed_cb = embed_cb if embed_cb is not None else embed_face
         self._last_recognition = float("-inf")
+        self._was_present = False
 
         # Recognition worker (F5): the frame thread only crops (cheap array
         # slicing, no I/O) and hands the crop off non-blocking; a dedicated
@@ -294,6 +298,11 @@ class TrackingApp:
         # the disk write (SS3.1: no filesystem calls in the frame loop).
         self._writer.publish(person_present=person_present,
                               person_in_range=person_in_range)
+        if self._was_present and not person_present:
+            # Departure clears identity, else person_id goes stale and the
+            # next visitor could be greeted as the previous one.
+            self._writer.publish(person_id=None)
+        self._was_present = person_present
 
         if (target is not None
                 and now - self._last_recognition >= self.recognition_interval_s):
@@ -344,7 +353,7 @@ class TrackingApp:
         """Runs on the recognition worker thread ONLY -- never the frame
         thread. Publishes results via the ThreadedStateWriter, never a
         direct SharedState write."""
-        embedding = embed_face(crop)
+        embedding = self.embed_cb(crop)
         if embedding is None:
             return  # stub until Phase 6
         match = self.people_store.match(embedding)
