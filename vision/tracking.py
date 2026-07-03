@@ -1,0 +1,340 @@
+"""The tracking process: camera -> detector -> target persistence -> PID
+-> shared/serial_protocol.py -> transport, plus a throttled IPC update and
+a low-frequency recognition hook.
+
+Loads profiles/$CBOT_PROFILE/{profile.yaml, calibration.json} (env var,
+default "sim"). REFUSES to start without calibration.json -- there are no
+hardcoded pixel->degree fallbacks (SS3.1 hard rule).
+
+Hard rules enforced here (ORCHESTRATION.md SS3.1 / skills/vision-face-tracking):
+  - The frame loop never blocks: no LLM/disk/network calls in step();
+    transport writes are best-effort/non-blocking (vision/transport.py);
+    IPC updates are throttled to <=10Hz.
+  - Pixel->degree conversion only via the measured deg_per_px from
+    calibration.json.
+  - PID outputs target angles, never PWM; serial only via
+    shared/serial_protocol.py.
+  - Target persistence holds one face for >= hold_s before allowing a
+    switch to a different one (no crowd-snapping).
+  - Recognition (people.py match/enroll) runs at ~1Hz, never per-frame.
+"""
+import argparse
+import json
+import os
+import sys
+import time
+
+from shared import ipc, serial_protocol
+from vision.camera import open_camera
+from vision.paths import profile_dir, load_profile_yaml
+from vision.pid import PID
+from vision.transport import open_transport
+
+DEFAULT_PID_GAINS = {"kp": 0.6, "ki": 0.05, "kd": 0.05}
+
+
+class CalibrationError(RuntimeError):
+    pass
+
+
+def load_profile(name, root=None):
+    """Returns (profile_dict, calibration_dict). Raises CalibrationError
+    if profiles/<name>/calibration.json is missing -- no fallback."""
+    profile = load_profile_yaml(name, root)
+    calib_path = os.path.join(profile_dir(name, root), "calibration.json")
+    if not os.path.isfile(calib_path):
+        raise CalibrationError(
+            "Profile %r has no calibration.json (%s).\n"
+            "Run vision/calibrate.py first: "
+            "`python -m vision.calibrate --profile %s` "
+            "(see ORCHESTRATION.md SS3.5) -- tracking.py refuses to start "
+            "without a measured calibration." % (name, calib_path, name)
+        )
+    with open(calib_path, "r") as f:
+        calibration = json.load(f)
+    return profile, calibration
+
+
+# ---------------------------------------------------------------------------
+# Target persistence
+# ---------------------------------------------------------------------------
+
+def _center(bbox):
+    x, y, w, h = bbox[0], bbox[1], bbox[2], bbox[3]
+    return (x + w / 2.0, y + h / 2.0)
+
+
+def _dist(a, b):
+    ax, ay = _center(a)
+    bx, by = _center(b)
+    return ((ax - bx) ** 2 + (ay - by) ** 2) ** 0.5
+
+
+class TargetTracker:
+    """Holds one target across frames: nearest-bbox association to follow
+    the same physical face as it moves, and a >= hold_s commitment before
+    a different face is allowed to take over (no crowd-snapping).
+
+    A detection is only accepted as "the same face" if its center falls
+    within `gate_mult` * the larger of the two bbox sizes of the previous
+    position -- a plausible single-frame motion. Anything farther away is
+    treated as a candidate face, only adopted once the current lock has
+    been held for >= hold_s (whether still detected or lost).
+    """
+
+    def __init__(self, hold_s=3.0, gate_mult=1.5, clock=time.monotonic):
+        self.hold_s = hold_s
+        self.gate_mult = gate_mult
+        self._clock = clock
+        self.current = None
+        self._locked_since = None
+
+    def _same_face(self, prev, cand):
+        d = _dist(prev, cand)
+        size = max(prev[2], prev[3], cand[2], cand[3])
+        return d <= self.gate_mult * size
+
+    def _commit(self, bbox, now):
+        self.current = bbox
+        self._locked_since = now
+
+    def update(self, detections):
+        now = self._clock()
+
+        if self.current is None:
+            if detections:
+                self._commit(max(detections, key=lambda d: d[4]), now)
+            return self.current
+
+        match = None
+        if detections:
+            nearest = min(detections, key=lambda d: _dist(d, self.current))
+            if self._same_face(self.current, nearest):
+                match = nearest
+
+        if match is not None:
+            self.current = match
+            return self.current
+
+        # Current face not (plausibly) present this frame.
+        held_for = now - self._locked_since
+        if held_for >= self.hold_s:
+            if detections:
+                self._commit(max(detections, key=lambda d: d[4]), now)
+            else:
+                self.current = None
+                self._locked_since = None
+        # else: keep holding the last known position -- no snap yet.
+        return self.current
+
+
+# ---------------------------------------------------------------------------
+# Recognition hook (structure only; real embeddings land in Phase 6)
+# ---------------------------------------------------------------------------
+
+def crop_face(frame, bbox):
+    """Default face_crop_cb: slice bbox out of frame. Returns None if the
+    bbox doesn't overlap the frame."""
+    x, y, w, h = bbox[0], bbox[1], bbox[2], bbox[3]
+    ih, iw = frame.shape[:2]
+    x0, y0 = max(0, int(x)), max(0, int(y))
+    x1, y1 = min(iw, int(x + w)), min(ih, int(y + h))
+    if x1 <= x0 or y1 <= y0:
+        return None
+    return frame[y0:y1, x0:x1]
+
+
+def embed_face(face_crop_bgr):
+    """Compute a face embedding for people.py match/enroll.
+
+    TODO(Phase 6): replace with SFace (cv2.FaceRecognizerSF) inference per
+    SS3.1/skills/vision-face-tracking. Returns None (recognition inert)
+    until then -- the hook is fully wired, just behind this stub.
+    """
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Tracking loop
+# ---------------------------------------------------------------------------
+
+class TrackingApp:
+    """One iteration of the tracking loop lives in step() so it can be
+    unit-tested without threads, real time, or a real camera/transport."""
+
+    def __init__(self, camera, detector, transport, state, calibration,
+                 hold_s=3.0, in_range_frac=0.25, pid_gains=None,
+                 recognition_interval_s=1.0, face_crop_cb=None,
+                 people_store=None, clock=time.monotonic,
+                 ipc_min_interval=0.1):
+        self.camera = camera
+        self.detector = detector
+        self.transport = transport
+        self.state = state
+        self.calibration = calibration
+        self.in_range_frac = in_range_frac
+        self.clock = clock
+
+        self.tracker = TargetTracker(hold_s=hold_s, clock=clock)
+
+        axes = calibration["axes"]
+        deg_per_px = calibration["deg_per_px"]
+        deadband_deg = calibration.get("deadband_deg", 0.0)
+        gains = pid_gains or {}
+        pan_gains = dict(DEFAULT_PID_GAINS, **gains.get("pan", {}))
+        tilt_gains = dict(DEFAULT_PID_GAINS, **gains.get("tilt", {}))
+
+        self.pan_sign = axes["pan"].get("sign", 1)
+        self.tilt_sign = axes["tilt"].get("sign", 1)
+        self.pan_center = axes["pan"].get("center", 0.0)
+        self.tilt_center = axes["tilt"].get("center", 0.0)
+        self.deg_per_px_pan = deg_per_px["pan"]
+        self.deg_per_px_tilt = deg_per_px["tilt"]
+
+        # PID output is the correction *around* the calibrated center, so
+        # its limits are the soft limits shifted into that frame.
+        pan_out_limits = (axes["pan"]["min"] - self.pan_center,
+                           axes["pan"]["max"] - self.pan_center)
+        tilt_out_limits = (axes["tilt"]["min"] - self.tilt_center,
+                            axes["tilt"]["max"] - self.tilt_center)
+
+        self.pid_pan = PID(output_limits=pan_out_limits,
+                            deadband=deadband_deg, **pan_gains)
+        self.pid_tilt = PID(output_limits=tilt_out_limits,
+                             deadband=deadband_deg, **tilt_gains)
+
+        self._ipc_min_interval = ipc_min_interval
+        self._last_ipc_update = float("-inf")
+
+        self.recognition_interval_s = recognition_interval_s
+        self.face_crop_cb = face_crop_cb
+        self.people_store = people_store
+        self._last_recognition = float("-inf")
+
+    def step(self):
+        """One frame. Returns a small status dict, or None if the camera
+        read failed (caller decides whether/how to retry)."""
+        ok, frame = self.camera.read()
+        if not ok or frame is None:
+            return None
+
+        now = self.clock()
+        h, w = frame.shape[0], frame.shape[1]
+
+        detections = self.detector.detect(frame)
+        target = self.tracker.update(detections)
+
+        person_present = target is not None
+        person_in_range = False
+        pan_out = 0.0
+        tilt_out = 0.0
+
+        if target is not None:
+            x, y, bw, bh, _score = target
+            cx, cy = x + bw / 2.0, y + bh / 2.0
+            err_x_px = cx - w / 2.0
+            err_y_px = cy - h / 2.0
+
+            err_pan_deg = self.pan_sign * err_x_px * self.deg_per_px_pan
+            err_tilt_deg = self.tilt_sign * err_y_px * self.deg_per_px_tilt
+
+            pan_out = self.pid_pan.update(err_pan_deg, now=now)
+            tilt_out = self.pid_tilt.update(err_tilt_deg, now=now)
+
+            person_in_range = (bh / float(h)) >= self.in_range_frac
+
+            self.transport.write_line(serial_protocol.encode_target(
+                self.pan_center + pan_out, self.tilt_center + tilt_out))
+        else:
+            # No face: stop sending -- the ESP32 owns idle scan on silence.
+            self.pid_pan.reset()
+            self.pid_tilt.reset()
+
+        if now - self._last_ipc_update >= self._ipc_min_interval:
+            self.state.update(person_present=person_present,
+                               person_in_range=person_in_range)
+            self._last_ipc_update = now
+
+        if (target is not None and self.face_crop_cb is not None
+                and self.people_store is not None
+                and now - self._last_recognition >= self.recognition_interval_s):
+            self._last_recognition = now
+            self._run_recognition(frame, target)
+
+        return {
+            "target": target,
+            "person_present": person_present,
+            "person_in_range": person_in_range,
+            "pan_out": pan_out,
+            "tilt_out": tilt_out,
+        }
+
+    def _run_recognition(self, frame, target):
+        crop = self.face_crop_cb(frame, target)
+        if crop is None:
+            return
+        embedding = embed_face(crop)
+        if embedding is None:
+            return  # stub until Phase 6
+        match = self.people_store.match(embedding)
+        if match is not None:
+            self.state.update(person_id=str(match[0]))
+        else:
+            new_id = self.people_store.enroll(embedding)
+            seq = self.state.get("new_person_seq") + 1
+            self.state.update(person_id=str(new_id), new_person_seq=seq)
+
+    def run_forever(self, target_hz=30.0, stop_flag=None):
+        period = 1.0 / target_hz
+        while stop_flag is None or not stop_flag():
+            t0 = self.clock()
+            self.step()
+            elapsed = self.clock() - t0
+            if elapsed < period:
+                time.sleep(period - elapsed)
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="CBot vision tracking process")
+    parser.add_argument("--profile", default=None,
+                         help="defaults to $CBOT_PROFILE, then 'sim'")
+    parser.add_argument("--fps", type=float, default=30.0)
+    args = parser.parse_args(argv)
+
+    name = args.profile or os.environ.get("CBOT_PROFILE", "sim")
+    profile, calibration = load_profile(name)
+
+    camera = open_camera(profile)
+    transport = open_transport(profile)
+
+    from vision.detector import YuNetDetector
+    detector = YuNetDetector(model_path=profile.get("yunet_model_path"))
+
+    state_path = profile.get("ipc_state_path") or os.path.join(
+        profile_dir(name), "..", "..", "run", name, "state.json")
+    state_path = os.path.normpath(state_path)
+    os.makedirs(os.path.dirname(state_path), exist_ok=True)
+    state = ipc.SharedState(state_path)
+
+    people_store = None
+    try:
+        from shared.people import PeopleStore
+        people_db_path = profile.get("people_db_path") or os.path.normpath(
+            os.path.join(profile_dir(name), "..", "..", "run", name, "people.db"))
+        os.makedirs(os.path.dirname(people_db_path), exist_ok=True)
+        people_store = PeopleStore(people_db_path)
+    except Exception as exc:  # pragma: no cover - defensive only
+        print("warning: recognition disabled (%s)" % exc, file=sys.stderr)
+
+    app = TrackingApp(camera, detector, transport, state, calibration,
+                       face_crop_cb=crop_face, people_store=people_store)
+    app.run_forever(target_hz=args.fps)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
