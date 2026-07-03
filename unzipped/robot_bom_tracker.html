@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Convention Face-Tracking Robot — Bill of Materials</title>
+<style>
+  :root {
+    --surface-0: #f5f4f0;
+    --surface-1: #eeece5;
+    --surface-2: #ffffff;
+    --text-primary: #1a1a18;
+    --text-secondary: #5f5e5a;
+    --text-accent: #0c447c;
+    --border: #d3d1c7;
+    --border-strong: #b4b2a9;
+    --bg-success: #eaf3de;
+  }
+  body {
+    font-family: -apple-system, "Segoe UI", Arial, sans-serif;
+    background: var(--surface-0);
+    color: var(--text-primary);
+    margin: 0;
+    padding: 2rem 1rem;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 4px; }
+  .sub { color: var(--text-secondary); font-size: 13px; margin: 0 0 24px; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  .tabs button {
+    flex: 1; padding: 10px; border-radius: 8px; border: 1px solid var(--border-strong);
+    background: var(--surface-2); cursor: pointer; font-size: 14px; font-weight: 500;
+  }
+  .tabs button.active { border-color: var(--text-accent); color: var(--text-accent); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--surface-2); border-radius: 8px; overflow: hidden; }
+  th { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border-strong); color: var(--text-secondary); font-weight: 500; background: var(--surface-1); }
+  td { padding: 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .section-row td { font-weight: 600; background: var(--surface-1); padding: 10px 8px 4px; }
+  .confirmed { background: var(--bg-success); }
+  .note { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+  a { color: var(--text-accent); text-decoration: none; font-size: 12px; }
+  .total { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding: 12px 16px; background: var(--surface-1); border-radius: 8px; }
+  .total span:last-child { font-size: 20px; font-weight: 600; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .footer-note { margin-top: 20px; padding: 12px; background: var(--surface-1); border-radius: 8px; font-size: 12px; color: var(--text-secondary); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Convention face-tracking robot — bill of materials</h1>
+  <p class="sub">Local vision + local LLM, pan/tilt camera, ESP32-S3 servo control. Saved snapshot, July 2026.</p>
+
+  <div class="tabs">
+    <button id="tab-full" class="active" onclick="switchTab('full')">Full-spec build</button>
+    <button id="tab-reduced" onclick="switchTab('reduced')">Cost-reduced build</button>
+  </div>
+
+  <div id="panel-full" class="panel active"></div>
+  <div id="panel-reduced" class="panel"></div>
+
+  <div class="footer-note">Green rows are user-confirmed prices/links. Verify remaining estimated rows before ordering — stock and pricing shift, especially for the Jetson kit and NAND storage.</div>
+</div>
+
+<script>
+const data = {
+  full: [
+    {section:"Compute & vision"},
+    {cat:"Compute",item:"NVIDIA Jetson Orin Nano Super Dev Kit, 8GB, 67 TOPS",price:320.00,source:"Amazon / NVIDIA",link:"https://www.amazon.com/NVIDIA-Jetson-Orin-Nano-Developer/dp/B0BZJTQ5YP",confirmed:true},
+    {cat:"Storage",item:"KingSpec M.2 2280 256GB PCIe Gen3 x4 NVMe, up to 3500MB/s",price:56.99,source:"Newegg",link:"https://www.newegg.com/kingspec-256gb/p/0D9-000D-00152",confirmed:true},
+    {cat:"Camera",item:"Arducam IMX219 wide-angle CSI camera module for NVIDIA Jetson",price:15.99,source:"Amazon",link:"https://www.amazon.com/Arducam-IMX219-Camera-Module-NVIDIA/dp/B082NVPC1N",confirmed:true},
+    {section:"Motion control"},
+    {cat:"MCU",item:"ESP32-S3-DevKitC-1, WROOM-1-N16R8, 16MB flash/8MB PSRAM, WiFi+BT 5.0",price:24.99,source:"Amazon",link:"https://www.amazon.com/ESP32-S3-DevKitC-1-WROOM-1-N16R8-Development-Compatible-MicroPython/dp/B0FPLSL9Z5",confirmed:true,note:"1 needed, 2 spares included"},
+    {cat:"Servo",item:"DS3218MG 20kg digital servo, metal gear, standard size, 2-pack (pan + tilt)",price:26.99,source:"Amazon",link:"https://www.amazon.com/DS3218-Waterproof-Digital-Torque-Control/dp/B085PVVZNQ",confirmed:true,note:"Standard servo footprint - widely compatible brackets"},
+    {cat:"Mount",item:"Pan/tilt bracket kit for standard-size servos",price:24.69,source:"eBay",link:"https://www.ebay.com/itm/286984154126",confirmed:true},
+    {section:"Audio"},
+    {cat:"Mic + speaker",item:"USB sound card w/ onboard mic + 8ohm 5W speaker, driver-free, for Jetson",price:19.79,source:"Amazon",link:"https://www.amazon.com/Raspberry-Recording-Playback-Microphone-Driver-Free/dp/B0CXJ2RTWJ",confirmed:true,note:"Single forward-facing mic - camera/servo aiming handles direction"},
+    {section:"Power"},
+    {cat:"Power (compute)",item:"NOBIS 20,000mAh portable charger, 65W USB-C PD fast charging",price:35.97,source:"Amazon",link:"https://www.amazon.com/NOBIS-Portable-Charger-20000mAh-Charging/dp/B0G1H1H619",confirmed:true,note:"Powers the Jetson"},
+    {cat:"Power (servos)",item:"Talentcell 12V 7000mAh battery pack, PD 45W USB-C, 12.6V DC out",price:49.99,source:"Amazon",link:"https://www.amazon.com/Talentcell-Portable-Raspberry-Telescope-Smartphone/dp/B0FV278YQJ",confirmed:true,note:"Feeds the buck converter below - dedicated servo rail"},
+    {cat:"Power (servos)",item:"Seloky LM2596 adjustable buck converter, 4-40V in to 1.25-37V out",price:7.99,source:"Amazon",link:"https://www.amazon.com/Seloky-Converter-Adjustable-Electronic-Stabilizer/dp/B0DBVYP91F",confirmed:true,note:"Steps Talentcell 12V down to 6-7.4V for servos"},
+    {section:"Misc"},
+    {cat:"Misc",item:"Wiring, connectors, standoffs, enclosure",price:30.00,source:"Amazon",link:"https://www.amazon.com/s?k=dupont+wire+jst+connector+kit",confirmed:false}
+  ],
+  reduced: [
+    {section:"Compute & vision"},
+    {cat:"Compute",item:"Jetson Orin Nano 4GB module + budget carrier board",price:200.00,source:"Waveshare / Hiwonder",link:"https://www.waveshare.com/jetson-orin-nano-dev-kit.htm",confirmed:false},
+    {cat:"Storage",item:"KingSpec M.2 2280 256GB PCIe Gen3 x4 NVMe, up to 3500MB/s",price:56.99,source:"Newegg",link:"https://www.newegg.com/kingspec-256gb/p/0D9-000D-00152",confirmed:true},
+    {cat:"Camera",item:"Generic 1080p USB webcam with autofocus",price:15.00,source:"Amazon",link:"https://www.amazon.com/s?k=1080p+usb+webcam+autofocus",confirmed:false},
+    {section:"Motion control"},
+    {cat:"MCU",item:"ESP32-S3-DevKitC-1, WROOM-1-N16R8, 16MB flash/8MB PSRAM, WiFi+BT 5.0",price:24.99,source:"Amazon",link:"https://www.amazon.com/ESP32-S3-DevKitC-1-WROOM-1-N16R8-Development-Compatible-MicroPython/dp/B0FPLSL9Z5",confirmed:true,note:"1 needed, 2 spares included"},
+    {cat:"Servo",item:"MG996R metal-gear servo, 2-pack (pan + tilt)",price:14.00,source:"Amazon",link:"https://www.amazon.com/s?k=mg996r+servo+2+pack",confirmed:false},
+    {cat:"Mount",item:"Pan/tilt bracket kit for standard-size servos",price:24.69,source:"eBay",link:"https://www.ebay.com/itm/286984154126",confirmed:true},
+    {section:"Audio"},
+    {cat:"Mic + speaker",item:"USB sound card w/ onboard mic + 8ohm 5W speaker, driver-free, for Jetson",price:19.79,source:"Amazon",link:"https://www.amazon.com/Raspberry-Recording-Playback-Microphone-Driver-Free/dp/B0CXJ2RTWJ",confirmed:true,note:"Single forward-facing mic - camera/servo aiming handles direction"},
+    {section:"Power"},
+    {cat:"Power (compute)",item:"NOBIS 20,000mAh portable charger, 65W USB-C PD fast charging",price:35.97,source:"Amazon",link:"https://www.amazon.com/NOBIS-Portable-Charger-20000mAh-Charging/dp/B0G1H1H619",confirmed:true,note:"Powers the Jetson"},
+    {cat:"Power (servos)",item:"Talentcell 12V 7000mAh battery pack, PD 45W USB-C, 12.6V DC out",price:49.99,source:"Amazon",link:"https://www.amazon.com/Talentcell-Portable-Raspberry-Telescope-Smartphone/dp/B0FV278YQJ",confirmed:true,note:"Feeds the buck converter below - dedicated servo rail"},
+    {cat:"Power (servos)",item:"Seloky LM2596 adjustable buck converter, 4-40V in to 1.25-37V out",price:7.99,source:"Amazon",link:"https://www.amazon.com/Seloky-Converter-Adjustable-Electronic-Stabilizer/dp/B0DBVYP91F",confirmed:true,note:"Steps Talentcell 12V down to 6-7.4V for servos"},
+    {section:"Misc"},
+    {cat:"Misc",item:"Wiring, connectors, standoffs, enclosure",price:30.00,source:"Amazon",link:"https://www.amazon.com/s?k=dupont+wire+jst+connector+kit",confirmed:false}
+  ]
+};
+
+function fmt(n){ return '$' + n.toFixed(2); }
+
+function render(key, target){
+  const rows = data[key];
+  let total = 0;
+  let html = '<table><thead><tr><th>Category</th><th>Product</th><th style="text-align:right">Price</th><th>Source</th><th style="text-align:center">Link</th></tr></thead><tbody>';
+  rows.forEach(r => {
+    if(r.section){
+      html += `<tr class="section-row"><td colspan="5">${r.section}</td></tr>`;
+      return;
+    }
+    total += r.price;
+    const cls = r.confirmed ? 'confirmed' : '';
+    const noteHtml = r.note ? `<div class="note">${r.note}</div>` : '';
+    html += `<tr class="${cls}">
+      <td>${r.cat}</td>
+      <td>${r.item}${noteHtml}</td>
+      <td style="text-align:right;white-space:nowrap">${fmt(r.price)}</td>
+      <td>${r.source}</td>
+      <td style="text-align:center"><a href="${r.link}" target="_blank">View</a></td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  html += `<div class="total"><span>Total</span><span>${fmt(total)}</span></div>`;
+  document.getElementById(target).innerHTML = html;
+}
+
+function switchTab(which){
+  document.getElementById('panel-full').classList.toggle('active', which==='full');
+  document.getElementById('panel-reduced').classList.toggle('active', which==='reduced');
+  document.getElementById('tab-full').classList.toggle('active', which==='full');
+  document.getElementById('tab-reduced').classList.toggle('active', which==='reduced');
+}
+
+render('full', 'panel-full');
+render('reduced', 'panel-reduced');
+</script>
+</body>
+</html>

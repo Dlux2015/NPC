@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.gguf
+*.onnx
+*.wav
+people.db
+files.zip
+.pytest_cache/

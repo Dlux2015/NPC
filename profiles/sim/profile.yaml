@@ -1,0 +1,8 @@
+# Sim profile — digital twin on the dev PC. Select: CBOT_PROFILE=sim
+name: sim
+persona: persona.md
+serial_transport: socket   # sim/servo_sim.py listens on localhost
+camera_source: sim         # sim/world.py provides frames
+audio_device: default      # dev-PC audio or WAV fixtures
+# calibration.json + audio.json are produced by running calibrate.py
+# against the sim — do not hand-write them.

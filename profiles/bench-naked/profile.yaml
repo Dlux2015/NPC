@@ -1,0 +1,8 @@
+# Bench profile — real hardware, no shell. Select: CBOT_PROFILE=bench-naked
+name: bench-naked
+persona: persona.md
+serial_transport: usb      # real ESP32-S3 over USB serial
+camera_source: csi         # Arducam IMX219
+audio_device: "USB Audio"  # match by name, never index
+# calibration.json + audio.json are produced by calibrate.py at the bench
+# (Phase 2.5) — do not hand-write them.
