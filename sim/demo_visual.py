@@ -103,10 +103,22 @@ class _HaarDetector:
 
 def _pick_real_detector():
     from vision.detector import YuNetDetector, DEFAULT_MODEL_PATH
-    if os.path.isfile(DEFAULT_MODEL_PATH):
-        det = YuNetDetector()
-        det.name = "yunet"
-        return det
+    candidates = [DEFAULT_MODEL_PATH,
+                  DEFAULT_MODEL_PATH.replace("2023mar", "2022mar")]
+    for path in candidates:
+        if not os.path.isfile(path):
+            continue
+        try:
+            det = YuNetDetector(model_path=path)
+            # Probe on a dummy frame: some model/OpenCV version pairs only
+            # fail at first inference (e.g. the 2023mar model needs
+            # cv2 >= 4.8), and a crash mid-demo is worse than a fallback.
+            det.detect(np.zeros((120, 160, 3), dtype=np.uint8))
+            det.name = "yunet (%s)" % os.path.basename(path)
+            return det
+        except Exception as exc:
+            print("YuNet unusable (%s): %s -- trying next option"
+                  % (os.path.basename(path), exc), file=sys.stderr)
     return _HaarDetector()
 
 
