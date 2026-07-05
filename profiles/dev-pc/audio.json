@@ -1,0 +1,9 @@
+{
+  "input_device": null,
+  "mic_gain_db": 0.0,
+  "output_device": null,
+  "output_volume": 0.8,
+  "sample_rate": 16000,
+  "vad_threshold": 0.5,
+  "wake_threshold": 0.5
+}

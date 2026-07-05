@@ -155,9 +155,22 @@ def test_missing_wakeword_backend_degrades_without_raising(tmp_path):
     assert "wakeword" in trigger._unavailable
 
 
-def test_missing_mic_backend_degrades_without_raising(tmp_path):
-    """No mic_source injected and sounddevice isn't installed -- wakeword/
-    face_speech sources should both cleanly disable rather than raise."""
+def test_missing_mic_backend_degrades_without_raising(tmp_path, monkeypatch):
+    """No mic_source injected and no real MicStream backend available --
+    wakeword/face_speech sources should both cleanly disable rather than
+    raise. Forced via monkeypatch (rather than relying on sounddevice
+    happening to not be pip-installed on whatever machine runs this
+    suite -- a dev PC set up for conversation/demo_talk.py's live-audio
+    testing has sounddevice installed for real, so the "backend missing"
+    case has to be simulated instead) so this test's behavior doesn't
+    depend on the local machine's package inventory."""
+    import conversation.audio_dev as audio_dev
+
+    def _raise_no_hardware(*args, **kwargs):
+        raise RuntimeError("no audio hardware available (forced for test)")
+
+    monkeypatch.setattr(audio_dev, "MicStream", _raise_no_hardware)
+
     state = make_state(tmp_path, person_in_range=True)
     trigger, state, clock = make_trigger(
         tmp_path, state=state, mic_source=None, ptt_poll=lambda: False,

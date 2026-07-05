@@ -1,0 +1,39 @@
+# Dev-PC profile -- live conversation testing on the developer's own
+# Windows machine, using its real default mic + speakers (ORCHESTRATION.md
+# SS4.5: shells are swapped via profile, never via `if simulation:` code
+# branches). This is a real, committed profile like `sim`/`bench-naked` --
+# not a hack -- it just describes a different shell: "whatever mic/speaker
+# Windows currently calls default" instead of the robot's BOM USB sound
+# card. The final robot always keeps that USB card, wired up on its own
+# profile (bench-naked, or a printed-shell profile); nothing about this
+# profile ever needs to touch conversation/ or vision/ code.
+#
+# Select: CBOT_PROFILE=dev-pc
+name: dev-pc
+persona: persona.md
+serial_transport: none    # no ESP32 on this profile -- audio/LLM bench only
+camera_source: none       # no camera on this profile -- audio/LLM bench only
+audio_device: default     # OS-default input/output; see audio.json below
+
+# Piper voice for conversation/demo_talk.py, path relative to this profile
+# directory (resolved by demo_talk.py, not by conversation/tts.py directly).
+# Downloaded via `python -m piper.download_voices en_US-amy-low` --
+# version-pinned by committing the exact .onnx + .onnx.json pair; re-run
+# the same download_voices command to reproduce it byte-for-byte.
+# NOT wired up for bench-naked/printed-shell profiles -- those get their
+# own pinned voice choice per SS3.3 when Phase 2.5/4 happens for real.
+tts_model_path: voices/en_US-amy-low.onnx
+
+# llm_model_path intentionally omitted: no GGUF is expected to be present
+# on the dev PC by default, so conversation.llm.make_llm() falls back to
+# MockLLM (scripted replies) unless CBOT_LLM_MODEL is set in the
+# environment to a local Llama-3.2-3B-Instruct Q4_K_M GGUF (SS3.4).
+
+# calibration.json is intentionally NOT produced for this profile: there
+# are no servos/camera to calibrate here. audio.json below is hand-written
+# with conservative, documented dev-PC defaults instead of being produced
+# by vision/calibrate.py's step 7 (SS3.5) -- on a real shell (bench-naked,
+# or a printed enclosure profile) that step instead *measures* real mic
+# gain / VAD threshold / wake threshold / speaker level for that
+# enclosure's acoustics via calibrate.py. Do not hand-copy this file's
+# numbers onto a hardware profile -- re-run calibration there instead.
