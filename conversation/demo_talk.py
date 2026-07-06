@@ -3,6 +3,7 @@
 `profiles/dev-pc` -- swapped in via CBOT_PROFILE, zero code edits).
 
     python -m conversation.demo_talk              # live PTT conversation
+    python -m conversation.demo_talk --text        # typed chat, no audio at all
     python -m conversation.demo_talk --selfcheck   # non-interactive checks
 
 Pipeline-driving approach
@@ -318,6 +319,105 @@ class PttSTT:
         return text or None
 
 
+# --- text-only mode (no audio at all) ----------------------------------------
+#
+# Same philosophy as PTT mode: drive the REAL ConversationPipeline
+# (persona/history/identity/window-reset all unmodified) and swap only the
+# transport adapters at its pinned interfaces. Here the "mic" is the
+# console and the "speaker" is stdout, so none of sounddevice / faster-
+# whisper / TTS is even imported -- useful for exercising the local LLM
+# on its own.
+
+class ConsoleWake:
+    """wake.wait(timeout_s) -> event | None. Fires exactly once: the user
+    sitting at the console *is* the wake event, and after the conversation
+    ends (they typed quit / EOF) run_once() returns and the demo exits
+    instead of looping on a fresh wake."""
+
+    def __init__(self):
+        self._fired = False
+
+    def wait(self, timeout_s=None):
+        if self._fired:
+            return None
+        self._fired = True
+        return "text"
+
+
+class TypedSTT:
+    """listen_utterance(max_s) -> str | None, the exact contract
+    pipeline.py calls on `self.stt` -- but the "utterance" is a typed
+    console line. Returns None (pipeline: end of conversation) on
+    quit/exit, EOF, or Ctrl-C; re-prompts on empty input. max_s is
+    ignored: a human at a keyboard has no trailing-silence endpoint."""
+
+    QUIT_WORDS = ("quit", "exit", "/quit", "/exit")
+
+    def __init__(self, prompt="You: ", input_fn=input):
+        self._prompt = prompt
+        self._input = input_fn
+
+    def listen_utterance(self, max_s=None):
+        while True:
+            try:
+                text = self._input(self._prompt).strip()
+            except (EOFError, KeyboardInterrupt):
+                return None
+            if text.lower() in self.QUIT_WORDS:
+                return None
+            if text:
+                return text
+
+
+class ConsoleSpeaker:
+    """say(text) / say_stream(sentence_iter) -> stdout. Prints each
+    sentence as it arrives from the LLM stream (one line per sentence),
+    so the sentence-streaming behavior the robot's TTS relies on stays
+    visible in text mode."""
+
+    def say(self, text):
+        print("CBot: %s" % text, flush=True)
+
+    def say_stream(self, sentence_iter):
+        first = True
+        for sentence in sentence_iter:
+            print(("CBot: " if first else "      ") + sentence, flush=True)
+            first = False
+
+
+def run_text():
+    ensure_run_dir()
+    profile_yaml = load_profile_yaml(PROFILE_NAME)
+
+    print("== CBot dev-pc text conversation demo (no audio) ==")
+    print("Profile: %s (%s)"
+          % (PROFILE_NAME, os.path.join(profile_dir(PROFILE_NAME), "profile.yaml")))
+
+    state = SharedState(os.path.join(RUN_DIR, "state.json"))
+    people = PeopleStore(os.path.join(RUN_DIR, "people.db"))
+
+    llm = make_llm(profile_yaml)
+    if isinstance(llm, MockLLM):
+        print(
+            "LLM backend: MockLLM -- replies are scripted. For the real "
+            "model run this with the repo venv's interpreter "
+            "(.venv\\Scripts\\python.exe) so llama-cpp-python is available."
+        )
+    else:
+        print("LLM backend: LocalLLM (%s)" % llm.model_path)
+
+    pipeline = ConversationPipeline(
+        PROFILE_NAME, state, ConsoleWake(), TypedSTT(), llm, ConsoleSpeaker(),
+        people,
+    )
+
+    print()
+    print("Type to talk; 'quit' (or Ctrl-C) to leave.")
+    pipeline.run_once()
+    print("Conversation over.")
+    return 0
+
+
 # --- wiring -------------------------------------------------------------
 
 def ensure_run_dir():
@@ -486,6 +586,10 @@ def main(argv=None):
         help="Run non-interactive verification (devices, TTS, mic, STT) and exit -- no GUI.",
     )
     parser.add_argument(
+        "--text", action="store_true",
+        help="Typed console conversation -- no mic, no TTS, no audio stack at all.",
+    )
+    parser.add_argument(
         "--stt-model", default="base",
         help="faster-whisper model size for the live loop (default: base).",
     )
@@ -493,6 +597,8 @@ def main(argv=None):
 
     if args.selfcheck:
         return run_selfcheck()
+    if args.text:
+        return run_text()
     return run_live(stt_model_size=args.stt_model)
 
 

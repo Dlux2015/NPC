@@ -35,11 +35,12 @@ incl. servo stall — v1.1 exit criterion), 2.5 (real calibration),
 ## What runs right now (dev PC)
 
 ```
-python -m pytest -q                          # 161 tests
+python -m pytest -q                          # 173 tests
 python sim/demo_full_robot.py                # whole-robot e2e story
 python sim/demo_visual.py                    # interactive virtual world
 python sim/demo_visual.py --camera 0         # webcam: real YuNet tracking
 python -m conversation.demo_talk             # live PTT voice chat (PC audio)
+python -m conversation.demo_talk --text      # typed chat, no audio stack
 python -m vision.calibrate --profile sim --auto
 ```
 
