@@ -105,10 +105,36 @@ def _import_sounddevice():
     return sd
 
 
+def _wasapi_hostapi_index(sd):
+    """Best-effort index of the "Windows WASAPI" host API in
+    sd.query_hostapis(), or None if unavailable (non-Windows, an older
+    sounddevice/PortAudio build, or a fake `sd` in tests that doesn't
+    implement query_hostapis at all).
+
+    Windows exposes the same physical device once per host API (MME,
+    DirectSound, WASAPI, WDM-KS) with the SAME NAME, and legacy host APIs
+    can deliver a heavily attenuated capture level for the exact device
+    that sounds normal over WASAPI -- found 2026-07 debugging a dev-PC
+    mic that opened without error and returned real-looking (but ~50x
+    quieter than actual speech) samples over the PortAudio-default host
+    API (MME), while WASAPI on the same device captured normal levels.
+    WASAPI is preferred whenever it's available."""
+    query_hostapis = getattr(sd, "query_hostapis", None)
+    if query_hostapis is None:
+        return None
+    for i, api in enumerate(query_hostapis()):
+        if "wasapi" in api.get("name", "").lower():
+            return i
+    return None
+
+
 def resolve_device_by_name(name, kind="input", sd=None):
     """Returns the sounddevice device index whose name contains `name`
-    (case-insensitive substring match), or None if `name` is falsy --
-    callers then fall back to the OS default device. Raises RuntimeError
+    (case-insensitive substring match) -- preferring the WASAPI host API's
+    entry when the name matches more than one (see _wasapi_hostapi_index)
+    -- or, if `name` is falsy, the WASAPI host API's own default device
+    for `kind` (falling back to None, i.e. "let the OS/PortAudio default
+    decide", only if WASAPI isn't available at all). Raises RuntimeError
     if a non-empty name matches nothing: silently falling back to "the
     first device" is exactly how you end up capturing from the wrong mic
     after a USB re-enumeration, which is the hard rule this module exists
@@ -116,19 +142,54 @@ def resolve_device_by_name(name, kind="input", sd=None):
 
     kind: "input" or "output".
     """
-    if not name:
-        return None
     sd = sd or _import_sounddevice()
+    wasapi_idx = _wasapi_hostapi_index(sd)
+
+    if not name:
+        if wasapi_idx is None:
+            return None
+        key = "default_input_device" if kind == "input" else "default_output_device"
+        idx = sd.query_hostapis()[wasapi_idx].get(key)
+        return idx if idx is not None and idx >= 0 else None
+
     devices = sd.query_devices()
     want_key = "max_input_channels" if kind == "input" else "max_output_channels"
     name_lower = name.lower()
-    for idx, dev in enumerate(devices):
-        if dev.get(want_key, 0) > 0 and name_lower in dev.get("name", "").lower():
-            return idx
-    raise RuntimeError(
-        "No %s audio device matching name %r found. Available devices: %s"
-        % (kind, name, [d.get("name") for d in devices])
-    )
+    matches = [
+        idx for idx, dev in enumerate(devices)
+        if dev.get(want_key, 0) > 0 and name_lower in dev.get("name", "").lower()
+    ]
+    if not matches:
+        raise RuntimeError(
+            "No %s audio device matching name %r found. Available devices: %s"
+            % (kind, name, [d.get("name") for d in devices])
+        )
+    if wasapi_idx is not None:
+        for idx in matches:
+            if devices[idx].get("hostapi") == wasapi_idx:
+                return idx
+    return matches[0]
+
+
+def _wasapi_extra_settings(sd, device_idx):
+    """sd.WasapiSettings(auto_convert=True) if `device_idx` is a WASAPI
+    device, else None (nothing extra to pass for other host APIs).
+
+    WASAPI, unlike MME, rejects a samplerate that doesn't match the
+    device's native mixer rate unless told to auto-convert -- discovered
+    opening a 48kHz-native mic at the hard 16kHz capture rate
+    (ORCHESTRATION.md SS3.2) once WASAPI became the preferred host API
+    (see _wasapi_hostapi_index): MME silently resampled, WASAPI raised
+    "Invalid sample rate" until this flag is set.
+    """
+    if device_idx is None:
+        return None
+    wasapi_idx = _wasapi_hostapi_index(sd)
+    if wasapi_idx is None:
+        return None
+    if sd.query_devices()[device_idx].get("hostapi") != wasapi_idx:
+        return None
+    return sd.WasapiSettings(auto_convert=True)
 
 
 class MicStream:
@@ -151,6 +212,7 @@ class MicStream:
         self._stream = self._sd.InputStream(
             samplerate=self._sample_rate, channels=CHANNELS, dtype="int16",
             device=self._device,
+            extra_settings=_wasapi_extra_settings(self._sd, self._device),
         )
         self._stream.start()
 
@@ -188,4 +250,6 @@ class SpeakerSink:
 
     def play(self, samples, sample_rate=SAMPLE_RATE):
         data = (np.asarray(samples, dtype=np.float32) / 32768.0) * self.volume
-        self._sd.play(data, samplerate=sample_rate, device=self._device, blocking=True)
+        extra_settings = _wasapi_extra_settings(self._sd, self._device)
+        self._sd.play(data, samplerate=sample_rate, device=self._device,
+                       blocking=True, extra_settings=extra_settings)

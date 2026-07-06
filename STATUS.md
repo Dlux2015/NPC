@@ -85,15 +85,45 @@ back loudly to MockLLM (no crash).
 - Shell PATH quirk: `python`/`git`/`curl` aren't on this machine's
   PowerShell PATH — use `C:\Python310\python.exe`, the venv's python,
   or Git Bash (which has git/curl).
+- **Live audio input+output verified working end-to-end (2026-07-06)**:
+  real mic -> Silero VAD end-pointing -> faster-whisper -> Piper TTS
+  playback, through the actual product classes (MicStream/DirectedSTT/
+  Speaker). Getting there required three real fixes, not just config:
+  1. **Silero VAD's real model needs >=512-sample chunks at 16kHz**
+     ("Input audio chunk is too short" otherwise) — every conversation/
+     test injects a fake VAD, so this was never exercised until a live
+     mic test hit it. Fixed: `frame_ms` default 30->32 in stt.py/wake.py/
+     ambient.py (32ms = exactly 512 samples). Needs torch + torchaudio
+     in `.venv` (installed from plain PyPI, not download.pytorch.org --
+     that CDN TLS-handshake-fails from this network; PyPI's `torch`
+     wheel is CPU-only here anyway, ~123MB).
+  2. **Windows Settings -> Privacy & security -> Microphone -> "Let
+     desktop apps access your microphone"** was OFF. Symptom was
+     maximally confusing: MicStream opened with no error and returned
+     correctly-shaped samples that were just ~all zero/noise-floor --
+     looks exactly like a code bug, isn't one. Check this FIRST on any
+     "mic captures silence" report.
+  3. **MME (PortAudio's Windows default host API) delivered ~50x
+     quieter capture than WASAPI for the identical physical device**
+     (Brio 101) even after fixing #2. `resolve_device_by_name()` now
+     prefers a WASAPI-hosted match/default over MME/DirectSound
+     (`conversation/audio_dev.py`'s `_wasapi_hostapi_index`). WASAPI is
+     stricter about sample rate than MME though (rejects 16kHz on a
+     48kHz-native device outright) -- fixed by passing
+     `extra_settings=sd.WasapiSettings(auto_convert=True)`
+     (`_wasapi_extra_settings`) on every real stream open/play.
+  New tests: `conversation/tests/test_vad.py` (real-model, skipped
+  without torch) + WASAPI-preference cases in `test_audio_dev.py`.
 
 ## Known open items (priority order)
 
 1. CI: pytest on push (private remote EXISTS as of 2026-07-06:
    https://github.com/Dlux2015/CBot, origin/master, push via gh auth).
    Note: CI runners have no GPU/GGUF — suite already mock-based, fine.
-2. User hasn't yet run demo_talk against the REAL LLM (integrated +
-   smoke-tested 2026-07-06, but live voice chat needs the mic fix below
-   and the venv interpreter).
+2. User hasn't yet run demo_talk (live PTT mode) against the REAL LLM
+   with real voice -- LLM integration and live mic/TTS are each verified
+   working (2026-07-06) but not yet exercised together in one session.
+   Needs the venv interpreter + torch/torchaudio (see mic fixes above).
 3. User hasn't yet tested multi-face display in webcam demo (built,
    committed, untested by user).
 4. When DeWalt parts are purchased: docs-scribe flips BOM v2 power rows

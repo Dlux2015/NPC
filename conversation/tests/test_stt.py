@@ -96,11 +96,16 @@ def test_listen_utterance_returns_none_when_nobody_speaks():
 def test_listen_utterance_stops_at_max_s_for_continuous_speech():
     """A source that never falls silent must still be bounded by max_s."""
     clock = FakeClock()
-    tone = (8000 * np.sin(np.linspace(0, 6, 480))).astype(np.int16)
+    frame_ms = 32  # explicit: must match DirectedSTT's own frame_ms below,
+    # since ClockAdvancingMicSource's fake-clock advance is decoupled from
+    # DirectedSTT's real elapsed-audio bookkeeping and the two need to
+    # agree for this test's math to hold.
+    frame_samples = int(SAMPLE_RATE * frame_ms / 1000)
+    tone = (8000 * np.sin(np.linspace(0, 6, frame_samples))).astype(np.int16)
     inner = ConstantMicSource(tone)
-    mic = ClockAdvancingMicSource(inner, clock, frame_s=480 / SAMPLE_RATE)
+    mic = ClockAdvancingMicSource(inner, clock, frame_s=frame_samples / SAMPLE_RATE)
     model = FakeWhisperModel("cut off")
-    stt, _ = make_stt(mic_source=mic, model=model,
+    stt, _ = make_stt(mic_source=mic, model=model, frame_ms=frame_ms,
                        vad=EnergyVAD(threshold=0.1), clock=clock)
 
     text = stt.listen_utterance(max_s=1.0)

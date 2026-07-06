@@ -20,13 +20,29 @@ from conversation.tests._audio_fakes import fixture_path
 
 class FakeSoundDevice:
     """Minimal stand-in for the bits of the `sounddevice` module
-    resolve_device_by_name touches."""
+    resolve_device_by_name touches. Deliberately has NO query_hostapis --
+    exercises the "WASAPI unavailable" path (the only one testable
+    without a `hostapi` key on every device)."""
 
     def __init__(self, devices):
         self._devices = devices
 
     def query_devices(self):
         return self._devices
+
+
+class FakeSoundDeviceWithHostapis(FakeSoundDevice):
+    """Adds query_hostapis(), so tests can exercise the WASAPI-preference
+    path added 2026-07 after a real dev-PC mic turned out to be captured
+    at ~50x attenuation over MME (the PortAudio-default host API on
+    Windows) versus WASAPI for the exact same physical device."""
+
+    def __init__(self, devices, hostapis):
+        super().__init__(devices)
+        self._hostapis = hostapis
+
+    def query_hostapis(self):
+        return self._hostapis
 
 
 DEVICES = [
@@ -63,6 +79,44 @@ def test_resolve_device_by_name_respects_input_vs_output_channels():
     with pytest.raises(RuntimeError):
         resolve_device_by_name("HDMI", "input", sd=sd)
     assert resolve_device_by_name("HDMI", "output", sd=sd) == 2
+
+
+# --- WASAPI preference (2026-07: same physical device, ~50x quieter over
+# MME than WASAPI on a real dev-PC mic) -------------------------------------
+
+def test_resolve_device_by_name_prefers_wasapi_among_matching_candidates():
+    """Same mic name appears under two host APIs, MME first in device
+    order -- WASAPI's entry must win even though it comes later."""
+    devices = [
+        {"name": "Microphone (Brio)", "max_input_channels": 2,
+         "max_output_channels": 0, "hostapi": 0},
+        {"name": "Microphone (Brio)", "max_input_channels": 2,
+         "max_output_channels": 0, "hostapi": 1},
+    ]
+    hostapis = [{"name": "MME"}, {"name": "Windows WASAPI"}]
+    sd = FakeSoundDeviceWithHostapis(devices, hostapis)
+    assert resolve_device_by_name("Brio", "input", sd=sd) == 1
+
+
+def test_resolve_device_by_name_none_prefers_wasapi_default_device():
+    devices = [{"name": "x", "max_input_channels": 1, "max_output_channels": 0}]
+    hostapis = [
+        {"name": "MME", "default_input_device": 0, "default_output_device": 0},
+        {"name": "Windows WASAPI", "default_input_device": 5, "default_output_device": 6},
+    ]
+    sd = FakeSoundDeviceWithHostapis(devices, hostapis)
+    assert resolve_device_by_name(None, "input", sd=sd) == 5
+    assert resolve_device_by_name(None, "output", sd=sd) == 6
+
+
+def test_resolve_device_by_name_falls_back_when_no_wasapi_match_among_candidates():
+    """Named match exists only under a non-WASAPI host API -- still
+    return it; never raise just because WASAPI lacks this device."""
+    devices = [{"name": "Weird Legacy Mic", "max_input_channels": 1,
+                "max_output_channels": 0, "hostapi": 0}]
+    hostapis = [{"name": "MME"}, {"name": "Windows WASAPI"}]
+    sd = FakeSoundDeviceWithHostapis(devices, hostapis)
+    assert resolve_device_by_name("Legacy", "input", sd=sd) == 0
 
 
 def test_load_audio_config_missing_file_returns_documented_defaults(tmp_path):

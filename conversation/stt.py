@@ -17,7 +17,7 @@ from conversation.vad import SileroVAD
 
 class DirectedSTT:
     def __init__(self, profile, mic_source=None, model=None, vad=None,
-                 audio_config=None, model_size="small", frame_ms=30,
+                 audio_config=None, model_size="small", frame_ms=32,
                  end_silence_s=0.8, min_speech_s=0.2,
                  clock=time.monotonic, sleep_fn=time.sleep):
         self.profile = profile
@@ -27,6 +27,11 @@ class DirectedSTT:
         self._vad = vad or SileroVAD(threshold=self.audio_config.get("vad_threshold", 0.5))
         self.model_size = model_size
         self.sample_rate = self.audio_config.get("sample_rate", SAMPLE_RATE)
+        # frame_ms=32 -> exactly 512 samples at 16kHz: Silero VAD's real
+        # model rejects any chunk shorter than that ("Input audio chunk
+        # is too short"). 30ms (480 samples) looked reasonable but was
+        # never actually exercised against the real model until a live
+        # mic test surfaced it -- every test here injects a fake VAD.
         self.frame_samples = max(1, int(self.sample_rate * frame_ms / 1000))
         self.end_silence_s = end_silence_s
         self.min_speech_s = min_speech_s

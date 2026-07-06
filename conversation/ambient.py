@@ -28,7 +28,7 @@ DEFAULT_DUTY_CYCLE_S = 0.2
 
 class AmbientBuffer:
     def __init__(self, profile, state, mic_source=None, model=None, vad=None,
-                 audio_config=None, frame_ms=30, window_s=WINDOW_S,
+                 audio_config=None, frame_ms=32, window_s=WINDOW_S,
                  publish_interval_s=PUBLISH_INTERVAL_S,
                  duty_cycle_s=DEFAULT_DUTY_CYCLE_S,
                  clock=time.monotonic, sleep_fn=time.sleep):
@@ -39,6 +39,8 @@ class AmbientBuffer:
         self._model = model
         self._vad = vad or SileroVAD(threshold=self.audio_config.get("vad_threshold", 0.5))
         self.sample_rate = self.audio_config.get("sample_rate", SAMPLE_RATE)
+        # frame_ms=32 -> 512 samples at 16kHz, Silero VAD's real minimum
+        # chunk size (see conversation/stt.py's DirectedSTT for detail).
         self.frame_samples = max(1, int(self.sample_rate * frame_ms / 1000))
         self.window_s = window_s
         self.publish_interval_s = publish_interval_s

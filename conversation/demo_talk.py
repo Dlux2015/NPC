@@ -98,19 +98,17 @@ def _import_sd():
 
 def resolve_effective_device_name(kind, audio_config):
     """Returns (name, source_description) for the device that will
-    actually be used for `kind` ("input"/"output") -- either the
-    configured name (audio.json) resolved via resolve_device_by_name, or
-    whatever Windows currently calls its default."""
+    actually be used for `kind` ("input"/"output") -- routed through the
+    exact same resolve_device_by_name() that MicStream/SpeakerSink use
+    (including its WASAPI-over-MME preference), so what this prints always
+    matches what actually gets opened."""
     sd = _import_sd()
     configured = audio_config.get("%s_device" % kind)
-    if configured:
-        idx = resolve_device_by_name(configured, kind, sd=sd)
-        return sd.query_devices()[idx]["name"], "configured name %r" % configured
-    idx_in, idx_out = sd.default.device
-    idx = idx_in if kind == "input" else idx_out
-    if idx is None or idx < 0:
+    idx = resolve_device_by_name(configured, kind, sd=sd)
+    if idx is None:
         return None, "no OS default available"
-    return sd.query_devices()[idx]["name"], "OS default"
+    source = "configured name %r" % configured if configured else "OS default (WASAPI preferred)"
+    return sd.query_devices()[idx]["name"], source
 
 
 def warn_if_virtual(name, kind):

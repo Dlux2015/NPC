@@ -82,7 +82,7 @@ def _default_ptt_poll(key="space"):
 class WakeTrigger:
     def __init__(self, profile, state, mic_source=None, wakeword_model=None,
                  vad=None, ptt_poll=None, audio_config=None,
-                 frame_ms=30, poll_interval_s=0.05, ptt_key="space",
+                 frame_ms=32, poll_interval_s=0.05, ptt_key="space",
                  clock=time.monotonic, sleep_fn=time.sleep):
         self.profile = profile
         self.state = state
@@ -92,6 +92,8 @@ class WakeTrigger:
         self._vad = vad or SileroVAD(threshold=self.audio_config.get("vad_threshold", 0.5))
         self._ptt_poll = ptt_poll
         self._ptt_key = ptt_key
+        # frame_ms=32 -> 512 samples at 16kHz, Silero VAD's real minimum
+        # chunk size (see conversation/stt.py's DirectedSTT for detail).
         self.frame_samples = max(
             1, int(self.audio_config.get("sample_rate", 16000) * frame_ms / 1000)
         )
