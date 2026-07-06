@@ -1,9 +1,13 @@
-# Power system — power-tool battery rework (proposal, 2026-07-05)
+# Power system — DeWalt 20V tool-pack rework
 
-Replaces the BOM's NOBIS USB-C power bank (Jetson) + Talentcell 12V pack
-(servos) with DeWalt 20V MAX tool packs. Status: recommended, not yet
-purchased/confirmed. Original BOM stays in
-`unzipped/robot_bom_tracker.html` until this is committed to.
+**Status: ADOPTED into build spec v1.1 (2026-07-05)** — see
+`unzipped/robot_build_spec.md` power section and
+`unzipped/robot_bom_tracker_v2.html`. Prices remain estimates until
+purchase. This doc keeps the detailed rationale and the bench numbers to
+confirm.
+
+Replaced (BOM v1): NOBIS USB-C power bank (Jetson) + Talentcell 12V pack
++ Seloky LM2596 buck (servos).
 
 ## Why tool packs
 

@@ -6,7 +6,7 @@ motion smoothed on an ESP32-S3 (MicroPython). Swappable 3D-printed shells
 via per-shell calibration profiles. Full digital twin in `/sim`.
 
 - **Plan of record:** `ORCHESTRATION.md`
-- **Build spec:** `unzipped/robot_build_spec.md` · **BOM:** `unzipped/robot_bom_tracker.html`
+- **Build spec:** `unzipped/robot_build_spec.md` · **BOM:** `unzipped/robot_bom_tracker_v2.html`
 
 ## Layout
 ```

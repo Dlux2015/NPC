@@ -48,7 +48,7 @@
 <body>
 <div class="wrap">
   <h1>Convention face-tracking robot — bill of materials</h1>
-  <p class="sub">Local vision + local LLM, pan/tilt camera, ESP32-S3 servo control. Saved snapshot, July 2026.</p>
+  <p class="sub">Local vision + local LLM, pan/tilt camera, ESP32-S3 servo control. v2 — DeWalt 20V MAX tool-pack power rework, July 2026.</p>
 
   <div class="tabs">
     <button id="tab-full" class="active" onclick="switchTab('full')">Full-spec build</button>
@@ -58,7 +58,7 @@
   <div id="panel-full" class="panel active"></div>
   <div id="panel-reduced" class="panel"></div>
 
-  <div class="footer-note">Green rows are user-confirmed prices/links. Verify remaining estimated rows before ordering — stock and pricing shift, especially for the Jetson kit and NAND storage.</div>
+  <div class="footer-note">Green rows are user-confirmed prices/links. Power rows are the DeWalt 20V MAX tool-pack rework proposal — not yet purchased, verify before ordering.</div>
 </div>
 
 <script>
@@ -74,10 +74,12 @@ const data = {
     {cat:"Mount",item:"Pan/tilt bracket kit for standard-size servos",price:24.69,source:"eBay",link:"https://www.ebay.com/itm/286984154126",confirmed:true},
     {section:"Audio"},
     {cat:"Mic + speaker",item:"USB sound card w/ onboard mic + 8ohm 5W speaker, driver-free, for Jetson",price:19.79,source:"Amazon",link:"https://www.amazon.com/Raspberry-Recording-Playback-Microphone-Driver-Free/dp/B0CXJ2RTWJ",confirmed:true,note:"Single forward-facing mic - camera/servo aiming handles direction"},
-    {section:"Power"},
-    {cat:"Power (compute)",item:"NOBIS 20,000mAh portable charger, 65W USB-C PD fast charging",price:35.97,source:"Amazon",link:"https://www.amazon.com/NOBIS-Portable-Charger-20000mAh-Charging/dp/B0G1H1H619",confirmed:true,note:"Powers the Jetson"},
-    {cat:"Power (servos)",item:"Talentcell 12V 7000mAh battery pack, PD 45W USB-C, 12.6V DC out",price:49.99,source:"Amazon",link:"https://www.amazon.com/Talentcell-Portable-Raspberry-Telescope-Smartphone/dp/B0FV278YQJ",confirmed:true,note:"Feeds the buck converter below - dedicated servo rail"},
-    {cat:"Power (servos)",item:"Seloky LM2596 adjustable buck converter, 4-40V in to 1.25-37V out",price:7.99,source:"Amazon",link:"https://www.amazon.com/Seloky-Converter-Adjustable-Electronic-Stabilizer/dp/B0DBVYP91F",confirmed:true,note:"Steps Talentcell 12V down to 6-7.4V for servos"},
+    {section:"Power (DeWalt 20V MAX tool-pack rework)"},
+    {cat:"Power (packs)",item:"DeWalt DCB205 5Ah 20V MAX pack, qty 2",price:115.00,source:"Home Depot / Amazon",link:"https://www.amazon.com/Adapter-Conversion-Terminals-Connector-Robotics/dp/B0B9NPZM3M",confirmed:false,note:"Hot-swappable, ~100Wh each - one powers Jetson rail, one powers servo rail"},
+    {cat:"Power (adapters)",item:"Fused DeWalt adapter dock, 12AWG leads, 30A fuse, qty 2",price:40.00,source:"Amazon",link:"https://www.amazon.com/Conversion-Terminals-Connector-Converter-Robotics/dp/B09T39SYQR",confirmed:false,note:"One per pack"},
+    {cat:"Power (buck, compute)",item:"Buck converter, 19V/5A output (Jetson rail)",price:12.00,source:"Amazon",link:"https://www.amazon.com/s?k=buck+converter+19v+5a",confirmed:false,note:"Never wire pack direct to Jetson - fresh pack sits ~21V, over the 19V barrel spec"},
+    {cat:"Power (buck, servos)",item:"Buck converter, 6.5V/5A+ output (servo rail)",price:12.00,source:"Amazon",link:"https://www.amazon.com/s?k=buck+converter+5a+adjustable",confirmed:false,note:"Two DS3218MG stall at ~2.5A each - needs a genuine 5A-class buck"},
+    {cat:"Power (safety)",item:"Low-voltage alarm/cutoff module, ~15V, qty 2",price:10.00,source:"Amazon",link:"https://www.amazon.com/s?k=low+voltage+alarm+cutoff+module+12v",confirmed:false,note:"Mandatory - tool packs have no internal discharge cutoff, over-discharge damages them"},
     {section:"Misc"},
     {cat:"Misc",item:"Wiring, connectors, standoffs, enclosure",price:30.00,source:"Amazon",link:"https://www.amazon.com/s?k=dupont+wire+jst+connector+kit",confirmed:false}
   ],
@@ -92,10 +94,12 @@ const data = {
     {cat:"Mount",item:"Pan/tilt bracket kit for standard-size servos",price:24.69,source:"eBay",link:"https://www.ebay.com/itm/286984154126",confirmed:true},
     {section:"Audio"},
     {cat:"Mic + speaker",item:"USB sound card w/ onboard mic + 8ohm 5W speaker, driver-free, for Jetson",price:19.79,source:"Amazon",link:"https://www.amazon.com/Raspberry-Recording-Playback-Microphone-Driver-Free/dp/B0CXJ2RTWJ",confirmed:true,note:"Single forward-facing mic - camera/servo aiming handles direction"},
-    {section:"Power"},
-    {cat:"Power (compute)",item:"NOBIS 20,000mAh portable charger, 65W USB-C PD fast charging",price:35.97,source:"Amazon",link:"https://www.amazon.com/NOBIS-Portable-Charger-20000mAh-Charging/dp/B0G1H1H619",confirmed:true,note:"Powers the Jetson"},
-    {cat:"Power (servos)",item:"Talentcell 12V 7000mAh battery pack, PD 45W USB-C, 12.6V DC out",price:49.99,source:"Amazon",link:"https://www.amazon.com/Talentcell-Portable-Raspberry-Telescope-Smartphone/dp/B0FV278YQJ",confirmed:true,note:"Feeds the buck converter below - dedicated servo rail"},
-    {cat:"Power (servos)",item:"Seloky LM2596 adjustable buck converter, 4-40V in to 1.25-37V out",price:7.99,source:"Amazon",link:"https://www.amazon.com/Seloky-Converter-Adjustable-Electronic-Stabilizer/dp/B0DBVYP91F",confirmed:true,note:"Steps Talentcell 12V down to 6-7.4V for servos"},
+    {section:"Power (DeWalt 20V MAX tool-pack rework)"},
+    {cat:"Power (packs)",item:"DeWalt DCB205 5Ah 20V MAX pack, qty 2",price:115.00,source:"Home Depot / Amazon",link:"https://www.amazon.com/Adapter-Conversion-Terminals-Connector-Robotics/dp/B0B9NPZM3M",confirmed:false,note:"Hot-swappable, ~100Wh each - one powers Jetson rail, one powers servo rail"},
+    {cat:"Power (adapters)",item:"Fused DeWalt adapter dock, 12AWG leads, 30A fuse, qty 2",price:40.00,source:"Amazon",link:"https://www.amazon.com/Conversion-Terminals-Connector-Converter-Robotics/dp/B09T39SYQR",confirmed:false,note:"One per pack"},
+    {cat:"Power (buck, compute)",item:"Buck converter, 19V/5A output (Jetson rail)",price:12.00,source:"Amazon",link:"https://www.amazon.com/s?k=buck+converter+19v+5a",confirmed:false,note:"Never wire pack direct to Jetson - fresh pack sits ~21V, over the 19V barrel spec"},
+    {cat:"Power (buck, servos)",item:"Buck converter, 6.5V/5A+ output (servo rail)",price:12.00,source:"Amazon",link:"https://www.amazon.com/s?k=buck+converter+5a+adjustable",confirmed:false,note:"Two DS3218MG stall at ~2.5A each - needs a genuine 5A-class buck"},
+    {cat:"Power (safety)",item:"Low-voltage alarm/cutoff module, ~15V, qty 2",price:10.00,source:"Amazon",link:"https://www.amazon.com/s?k=low+voltage+alarm+cutoff+module+12v",confirmed:false,note:"Mandatory - tool packs have no internal discharge cutoff, over-discharge damages them"},
     {section:"Misc"},
     {cat:"Misc",item:"Wiring, connectors, standoffs, enclosure",price:30.00,source:"Amazon",link:"https://www.amazon.com/s?k=dupont+wire+jst+connector+kit",confirmed:false}
   ]

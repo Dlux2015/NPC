@@ -1,7 +1,7 @@
 # CBot Orchestration — Claude Code + Fable 5
 
 Builds the robot in `unzipped/robot_build_spec.md` (BOM:
-`unzipped/robot_bom_tracker.html`). Plan of record; nothing built yet.
+`unzipped/robot_bom_tracker_v2.html`). Plan of record; nothing built yet.
 
 **Goals:** (1) pan/tilt head keeps people in frame; (2) recognizes
 returning people, notices new ones — persistent identity; (3) hears
@@ -145,6 +145,9 @@ All shell-dependent values live in a boot-selected profile
 
 Swap (<30 min, zero code edits): re-house → `calibrate.py --profile <new>`
 full suite → optional new persona → reboot → verify.
+Battery bay (spec v1.1, DeWalt 20V packs): sized to pack + adapter dock,
+external tool-free hot-swap hatch, pack weight low/central (heaviest
+parts), low-voltage alarm audible/visible outside the shell.
 3D-modeling constraints: camera aperture ≥ lens FOV, mic port + speaker
 grille, **Jetson vent/fan duct (sealed head = throttle)**, USB/power
 access, clearance for full pan/tilt range.
@@ -155,7 +158,7 @@ access, clearance for full pan/tilt range.
 |---|---|---|
 | 0 Scaffold | orchestrator | Repo tree (spec layout + `/profiles` + `/sim`), agents, skills, §4 stubs |
 | 0.5 Sim rig | sim + reviewer | Closed-loop tracking of a scripted face entirely in sim; scenario suite green |
-| 1 Firmware bench | firmware | Smooth motion from serial angles; limits + idle scan verified (servo rail power) |
+| 1 Firmware bench | firmware | Smooth motion from serial angles; limits + idle scan verified (servo rail power); rail current draw measured incl. stall (spec v1.1 power section) |
 | 2 Vision standalone | vision | Detection printing offsets ≥30fps, no servos |
 | 2.5 Calibration | vision + reviewer | Full §3.5 on real hardware; profile committed |
 | 3 Closed loop | vision + firmware + reviewer | Smooth tracking, no oscillation, PID on measured calibration |
@@ -180,8 +183,11 @@ hardware.
 - Boot: systemd starts both processes with the profile, from battery, no
   keyboard. Health: IPC heartbeats + watchdog; ESP32 idle-scan covers
   "Jetson died". Thermal: log `tegrastats` (throttle = dropped FPS before
-  errors). Battery: no telemetry — record observed runtime, plan swaps.
-  Kill switch: physical, on the servo rail.
+  errors). Battery (spec v1.1: DeWalt 20V packs, one per rail): packs
+  have NO internal discharge cutoff — ~15V alarm/cutoff module per pack
+  is mandatory; hot-swap servo pack while Jetson runs; record observed
+  runtime, plan swaps. Optional Phase 3+: ESP32 ADC monitors servo rail
+  voltage, reports over serial. Kill switch: physical, on the servo rail.
 
 ## 7. Next actions
 

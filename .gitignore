@@ -7,4 +7,5 @@ venv/
 *.wav
 people.db
 files.zip
+filesv1.1.zip
 .pytest_cache/

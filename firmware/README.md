@@ -17,6 +17,12 @@ port — same cable flashes and talks).
 BEFORE connecting the servos.** An unadjusted buck can ship at 12V+ and
 will destroy them. Kill switch sits on the servo rail.
 
+Servo rail source (spec v1.1): DeWalt 20V pack → fused adapter dock →
+5A-class buck → servos. Fit the ~15V low-voltage alarm (tool packs have
+no internal discharge cutoff), and measure rail current incl. servo stall
+during this phase — details in `hardware/power_system.md`. The Phase 1
+exit criteria include that measurement.
+
 ## Deploy
 
 From the repo root (`A:\code\CBot`), board on USB:

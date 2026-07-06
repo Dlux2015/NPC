@@ -39,7 +39,7 @@ Mic/speaker  ---> Jetson (USB sound card)
 ## Finalized hardware (bill of materials)
 
 All prices are user-confirmed as of July 2026 unless noted "estimate."
-See `robot_bom_tracker.html` in this same folder for the interactive version
+See `robot_bom_tracker_v2.html` in this same folder for the interactive version
 with links.
 
 | Category | Component | Price | Notes |
@@ -51,19 +51,61 @@ with links.
 | Servos | DS3218MG 20kg digital servo, metal gear, standard footprint, 2-pack | $26.99 | Pan + tilt. No position feedback (standard PWM, not bus servo) — smoothing is handled in ESP32-S3 firmware |
 | Mount | Pan/tilt bracket for standard-size servos | $24.69 | Standard MG995/MG996/DS3218 footprint |
 | Audio | USB sound card w/ onboard mic + 8-ohm 5W speaker, driver-free | $19.79 | Single forward-facing mic — camera/servo aiming handles directionality, no beamforming needed |
-| Power (compute) | NOBIS 20,000mAh power bank, 65W USB-C PD | $35.97 | Dedicated to Jetson |
-| Power (servos) | Talentcell 12V 7000mAh battery pack, PD 45W, 12.6V DC out | $49.99 | Dedicated servo rail — isolated from compute power |
-| Power (servos) | Seloky LM2596 adjustable buck converter, 4-40V in / 1.25-37V out | $7.99 | Steps Talentcell 12.6V down to ~6-7.4V for servos |
+| Power | DeWalt DCB205 5Ah 20V MAX pack, qty 2 | ~$115 (estimate) | One pack per rail — hot-swappable |
+| Power | Fused DeWalt adapter dock, 12AWG leads, 30A fuse, qty 2 | ~$40 (estimate) | One per pack |
+| Power | Buck converter, 19V/5A output (Jetson rail) | ~$12 (estimate) | Steps pack voltage down for the Jetson's 19V barrel input |
+| Power | Buck converter, 6.5V/5A+ output (servo rail) | ~$12 (estimate) | Must be a genuine 5A-class part — two DS3218MG stall at ~2.5A each |
+| Power | Low-voltage alarm/cutoff module, ~15V, qty 2 | ~$10 (estimate) | Mandatory — see safety note below |
 | Misc | Wiring, connectors, standoffs, enclosure | $30.00 (estimate) | JST/Dupont wiring, mounting hardware |
 
-**Power chain (two independent rails — do not cross them):**
+**Power chain (v2 — DeWalt 20V MAX tool-pack rework, proposed 2026-07-05,
+not yet purchased/confirmed):**
 ```
-NOBIS 65W power bank --USB-C PD--> Jetson Orin Nano
-Talentcell 12V pack --DC barrel--> Seloky buck converter (set to ~6-7.4V) --> DS3218MG servos
+DeWalt pack A --fused adapter--> buck 19V/5A   --barrel--> Jetson Orin Nano
+DeWalt pack B --fused adapter--> buck 6.5V/5A+ ----------> DS3218MG servos
 ```
-Servos are rated 4.8-6.8V; do not wire them directly to the Talentcell's raw
-9-12.6V output or they will be damaged. Set the buck converter with a
-multimeter before connecting servos.
+
+This replaces an earlier NOBIS USB-C power bank (Jetson) + Talentcell 12V
+pack + Seloky LM2596 buck converter (servos) design. Reasons for the switch:
+hot-swappable packs mean a full convention day across 2-3 packs with zero
+downtime, ~100Wh per DCB205 pack (more than either the NOBIS's 74Wh or the
+Talentcell's 84Wh), and tool packs handle dual-servo stall current loads
+that stress USB power banks. DeWalt was chosen over Milwaukee M18 (better
+cells, pricier, smaller adapter market) and Ryobi ONE+ (cheapest, bulkier
+packs, spottier adapter supply) mainly for its large third-party robotics
+adapter market — brand choice here is about ecosystem, not electrical
+differences, so if packs from another brand are already owned, the
+downstream electronics (buck converters, cutoff modules) are identical.
+
+**Critical safety notes for this power system:**
+- **Never wire a pack directly to the Jetson.** A fresh pack sits at ~21V,
+  over the Jetson barrel jack's 19V spec — always go through the 19V/5A
+  buck converter first.
+- **Low-voltage cutoff is mandatory, not optional.** Tool packs have no
+  internal over-discharge protection (the tool body normally provides
+  that). Fit a ~15V alarm/cutoff module per pack, or have the tracking/
+  conversation software watchdog monitor rail voltage and alert well before
+  cutoff. Over-discharging a tool pack causes permanent damage.
+- **Fuse every pack.** Use adapter docks with a built-in 30A fuse, or add
+  inline fuses — these packs can deliver very high fault current.
+- **The old Seloky LM2596 buck converter is undersized regardless of which
+  battery system is used** — its ~2A continuous rating is below the ~2.5A
+  stall current of each DS3218MG servo. Replace it with a genuine 5A-class
+  buck converter even if this DeWalt rework is not adopted.
+
+**Runtime estimate:** Jetson at 25W power mode plus servos averaging a few
+watts is roughly 30W total draw, giving ~3 hours per 5Ah pack per rail, with
+hot-swapping extending that indefinitely. Confirm with measured draw during
+the Phase 1 bench test (see implementation milestones below) and record
+real numbers before finalizing pack count for a full convention day.
+
+**Shell/enclosure constraints this introduces:**
+- Battery bay sized to the specific pack + adapter dock, with an external
+  hatch for tool-free hot-swap mid-event.
+- Bay positioned so pack weight sits low and central in the shell — the
+  packs are the heaviest single components in the whole build.
+- Cutoff/alarm module should be audible or visible from outside the shell
+  so a low-battery state is noticeable during an event, not just in logs.
 
 ## Software stack
 
@@ -156,7 +198,7 @@ tracking may want to know, e.g. to reduce movement while talking).
 /shared
   ipc.py                      # shared state between vision and conversation processes
   serial_protocol.py          # shared angle-command format used by both vision.py and firmware
-robot_bom_tracker.html        # hardware bill of materials (reference only)
+robot_bom_tracker_v2.html        # hardware bill of materials (reference only)
 robot_build_spec.md           # this file
 ```
 
