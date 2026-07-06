@@ -104,7 +104,13 @@ back loudly to MockLLM (no crash).
    from the Jetson SPI header — `hardware/emote_display.md`, BOM rows
    added unconfirmed. Expression state machine is sim-provable now;
    panels bench at Phase 5. Not yet adopted into the spec.
-7. Per-person memory (facts table in people.db via shared/people.py,
+7. Power+RAM budget analysis done (2026-07-06):
+   `hardware/budget_analysis.md`. Verdicts: Jetson rail fine (~33W peak
+   vs 95W); RAM fits with ~1.5-2GB headroom (CUDA context = biggest
+   unknown, unified memory!); ONE flag — servo buck should be 8A-class,
+   not 5A (dual stall 5-6A), Phase 1 measurement decides. BOM note
+   updated. Doc lists the exact Phase 1/5 bench measurements to take.
+8. Per-person memory (facts table in people.db via shared/people.py,
    extract at conversation end, inject at greeting) — discussed
    2026-07-06, deliberately NOT a graph DB (Neo4j rejected: ~1-2GB JVM
    vs 8GB budget). Phase 6+ enhancement, not yet designed in detail.
