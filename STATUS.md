@@ -88,8 +88,9 @@ back loudly to MockLLM (no crash).
 
 ## Known open items (priority order)
 
-1. **No off-machine backup** — repo exists only on this PC. Set up
-   private GitHub remote + CI (pytest on push). Highest value next task.
+1. CI: pytest on push (private remote EXISTS as of 2026-07-06:
+   https://github.com/Dlux2015/CBot, origin/master, push via gh auth).
+   Note: CI runners have no GPU/GGUF — suite already mock-based, fine.
 2. User hasn't yet run demo_talk against the REAL LLM (integrated +
    smoke-tested 2026-07-06, but live voice chat needs the mic fix below
    and the venv interpreter).
