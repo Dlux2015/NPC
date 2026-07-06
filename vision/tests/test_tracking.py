@@ -184,6 +184,90 @@ def test_step_never_writes_ipc_directly_writer_owns_the_disk_call(tmp_path):
         app.close()
 
 
+def test_recognition_consent_mode_stashes_instead_of_enrolling(tmp_path):
+    """auto_enroll=False (consent flows, e.g. demo_friend's "can I be
+    your friend?"): an unmatched embedding must NOT be enrolled or
+    published -- only stashed for pop_unknown_embedding(); a matched one
+    still publishes person_id and clears the stash."""
+    bbox = (250, 150, 150, 150, 0.9)
+    camera = FakeCamera()
+    detector = SyntheticDetector(lambda f: [bbox])
+    transport = FakeTransport()
+    state = ipc.SharedState(str(tmp_path / "state.json"))
+
+    class ScriptedPeopleStore:
+        def __init__(self):
+            self.enrolls = []
+            self.match_result = None
+
+        def match(self, embedding, threshold=None):
+            return self.match_result
+
+        def enroll(self, embedding):
+            self.enrolls.append(embedding)
+            return 99
+
+    people = ScriptedPeopleStore()
+    emb = np.ones(8, dtype=np.float32)
+
+    box, clock = _clock_box(0.0)
+    app = TrackingApp(camera, detector, transport, state, _calibration(),
+                       clock=clock, face_crop_cb=lambda f, t: f,
+                       people_store=people, embed_cb=lambda crop: emb,
+                       auto_enroll=False, recognition_interval_s=1.0)
+    try:
+        app.step()
+        app._wait_recognition_idle()
+        assert people.enrolls == []          # nothing stored without consent
+        app._writer.flush()
+        assert state.get("person_id") is None  # nothing published either
+        stashed = app.pop_unknown_embedding()
+        assert stashed is not None and stashed.size == emb.size
+        assert app.pop_unknown_embedding() is None  # pop clears
+
+        # Known person: publishes id, clears any stash
+        people.match_result = (7, "Sam", 0.9)
+        box[0] = 1.1
+        app.step()
+        app._wait_recognition_idle()
+        app._writer.flush()
+        assert state.get("person_id") == "7"
+        assert app.pop_unknown_embedding() is None
+    finally:
+        app.close()
+
+
+def test_recognition_match_threshold_passed_through(tmp_path):
+    """match_threshold (e.g. recognition.SFACE_MATCH_THRESHOLD) must reach
+    people.match(); None must keep the store's own default."""
+    bbox = (250, 150, 150, 150, 0.9)
+    state = ipc.SharedState(str(tmp_path / "state.json"))
+
+    seen_thresholds = []
+
+    class ThresholdSpyStore:
+        def match(self, embedding, threshold=None):
+            seen_thresholds.append(threshold)
+            return (1, None, 0.9)
+
+        def enroll(self, embedding):
+            raise AssertionError("must not enroll on a match")
+
+    box, clock = _clock_box(0.0)
+    app = TrackingApp(FakeCamera(), SyntheticDetector(lambda f: [bbox]),
+                       FakeTransport(), state, _calibration(), clock=clock,
+                       face_crop_cb=lambda f, t: f,
+                       people_store=ThresholdSpyStore(),
+                       embed_cb=lambda crop: np.ones(4, dtype=np.float32),
+                       match_threshold=0.363)
+    try:
+        app.step()
+        app._wait_recognition_idle()
+        assert seen_thresholds == [0.363]
+    finally:
+        app.close()
+
+
 def test_recognition_hook_runs_on_worker_thread_and_is_inert_stub(tmp_path):
     """F5: crop_face (cheap, no I/O) still happens synchronously in
     step(), on schedule -- but the actual match/enroll work is handed off

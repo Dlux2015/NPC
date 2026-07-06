@@ -187,7 +187,8 @@ class TrackingApp:
                  hold_s=3.0, in_range_frac=0.25, pid_gains=None,
                  recognition_interval_s=1.0, face_crop_cb=None,
                  people_store=None, embed_cb=None, clock=time.monotonic,
-                 ipc_min_interval=0.1):
+                 ipc_min_interval=0.1, auto_enroll=True,
+                 match_threshold=None):
         self.camera = camera
         self.detector = detector
         self.transport = transport
@@ -236,6 +237,16 @@ class TrackingApp:
         # Injectable embedder (sim/tests inject a deterministic one);
         # defaults to module-level embed_face (real SFace at Phase 6).
         self.embed_cb = embed_cb if embed_cb is not None else embed_face
+        # auto_enroll=True: unknown stable face -> enroll + bump
+        # new_person_seq (SS3.1 default). auto_enroll=False: consent
+        # flows (e.g. "can I be your friend?") -- unknown embeddings are
+        # only STASHED (pop_unknown_embedding()); enrolling is the
+        # caller's decision, made outside this process's threads.
+        self.auto_enroll = auto_enroll
+        # people.match() threshold override; None = people.py default.
+        # The real SFace embedder wants recognition.SFACE_MATCH_THRESHOLD.
+        self.match_threshold = match_threshold
+        self._unknown_embedding = None  # guarded by _recognition_lock
         self._last_recognition = float("-inf")
         self._was_present = False
 
@@ -356,14 +367,33 @@ class TrackingApp:
         direct SharedState write."""
         embedding = self.embed_cb(crop)
         if embedding is None:
-            return  # stub until Phase 6
-        match = self.people_store.match(embedding)
-        if match is not None:
-            self._writer.publish(person_id=str(match[0]))
+            return  # embedder unavailable, or crop too degenerate
+        if self.match_threshold is not None:
+            match = self.people_store.match(embedding, threshold=self.match_threshold)
         else:
+            match = self.people_store.match(embedding)
+        if match is not None:
+            with self._recognition_lock:
+                self._unknown_embedding = None
+            self._writer.publish(person_id=str(match[0]))
+        elif self.auto_enroll:
             new_id = self.people_store.enroll(embedding)
             seq = self.state.get("new_person_seq") + 1
             self._writer.publish(person_id=str(new_id), new_person_seq=seq)
+        else:
+            # Consent mode: stash (latest wins) and publish nothing --
+            # person_id stays None until whoever owns the consent flow
+            # decides to enroll.
+            with self._recognition_lock:
+                self._unknown_embedding = embedding
+
+    def pop_unknown_embedding(self):
+        """Consent-flow accessor (auto_enroll=False): returns-and-clears
+        the most recent unmatched embedding, or None. Thread-safe; called
+        from conversation-side code, never the frame loop."""
+        with self._recognition_lock:
+            emb, self._unknown_embedding = self._unknown_embedding, None
+        return emb
 
     def _wait_recognition_idle(self, timeout=1.0):
         """Test helper: blocks until any in-flight recognition job the
@@ -428,8 +458,15 @@ def main(argv=None):
     except Exception as exc:  # pragma: no cover - defensive only
         print("warning: recognition disabled (%s)" % exc, file=sys.stderr)
 
+    # Phase 6 seam: real SFace embeddings when the model file is present,
+    # else recognition stays inert (embed_cb=None -> embed_face stub).
+    from vision.recognition import SFACE_MATCH_THRESHOLD, make_embedder
+    embedder = make_embedder(profile.get("sface_model_path"))
+    match_threshold = SFACE_MATCH_THRESHOLD if embedder is not None else None
+
     app = TrackingApp(camera, detector, transport, state, calibration,
-                       face_crop_cb=crop_face, people_store=people_store)
+                       face_crop_cb=crop_face, people_store=people_store,
+                       embed_cb=embedder, match_threshold=match_threshold)
     try:
         app.run_forever(target_hz=args.fps)
     finally:

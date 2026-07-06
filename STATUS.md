@@ -12,8 +12,12 @@ Suite: **157 passed, 2 skipped** (`python -m pytest -q`). Phases 0, 0.5,
 1(logic), 2, 4 complete + integration-reviewed + e2e-proven. Remaining
 work needs hardware: Phase 1 bench (flash ESP32, measure rail current
 incl. servo stall — v1.1 exit criterion), 2.5 (real calibration),
-3 (closed loop), 5 (Jetson memory/thermal), 6 (real SFace embedder →
-`TrackingApp(embed_cb=...)` seam), 7 (shell-swap drill).
+3 (closed loop), 5 (Jetson memory/thermal), 6 (recognition — the SFace
+embedder is now REAL and wired: `vision/recognition.py`, model at
+`vision/models/face_recognition_sface_2021dec.onnx` (gitignored, 38MB,
+opencv_zoo), `tracking.main()` uses it when present, threshold 0.363
+for unaligned crops; remaining Phase 6 work = Jetson bench + ambient),
+7 (shell-swap drill).
 
 ## Decisions log (don't re-litigate)
 
@@ -35,12 +39,14 @@ incl. servo stall — v1.1 exit criterion), 2.5 (real calibration),
 ## What runs right now (dev PC)
 
 ```
-python -m pytest -q                          # 173 tests
+python -m pytest -q                          # 206 tests
 python sim/demo_full_robot.py                # whole-robot e2e story
 python sim/demo_visual.py                    # interactive virtual world
 python sim/demo_visual.py --camera 0         # webcam: real YuNet tracking
 python -m conversation.demo_talk             # live PTT voice chat (PC audio)
 python -m conversation.demo_talk --text      # typed chat, no audio stack
+python -m conversation.demo_friend           # webcam+mic: consent-gated
+                                             # face enrollment + LLM chat
 python -m vision.calibrate --profile sim --auto
 ```
 
@@ -114,6 +120,21 @@ back loudly to MockLLM (no crash).
      (`_wasapi_extra_settings`) on every real stream open/play.
   New tests: `conversation/tests/test_vad.py` (real-model, skipped
   without torch) + WASAPI-preference cases in `test_audio_dev.py`.
+
+## Consent-gated enrollment (demo_friend, 2026-07-06)
+
+`conversation/demo_friend.py`: webcam recognition + mic conversation in
+one process — walk up, talk (face_speech wake), and if unrecognized the
+robot ASKS "can I be your friend?" before enrolling (auto_enroll=False
++ `TrackingApp.pop_unknown_embedding()`; a yes enrolls + bumps
+new_person_seq so the pipeline greets-as-new; "my name is X" then names
+the record; declines stick until the person leaves). This intentionally
+softens the spec's silent auto-enroll — if adopted for the robot it
+must move into ConversationPipeline with an IPC enroll handshake
+(vision/conversation are separate processes there; orchestrator owns
+that contract change). EchoGuardSTT (demo-side) drains mic backlog
+after TTS so the robot doesn't transcribe its own voice tail — real
+robot solves this properly at calibration step 7.
 
 ## Known open items (priority order)
 
