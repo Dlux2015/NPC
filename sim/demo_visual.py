@@ -64,10 +64,18 @@ class _Webcam:
     def __init__(self, index):
         import cv2
         self._cv2 = cv2
-        self._cap = cv2.VideoCapture(int(index))
+        # CAP_DSHOW opens faster and lags less than MSMF on Windows;
+        # 640x480 + buffer of 1 keeps detection fast and frames fresh
+        # (default buffering serves stale frames = perceived lag).
+        self._cap = cv2.VideoCapture(int(index), cv2.CAP_DSHOW)
+        if not self._cap.isOpened():
+            self._cap = cv2.VideoCapture(int(index))
         if not self._cap.isOpened():
             sys.exit("Could not open webcam index %s. Try another index "
                      "(0, 1, ...) or close apps using the camera." % index)
+        self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         self.last_frame = None
 
     def read(self):
@@ -222,10 +230,21 @@ class VisualRig:
                        cv2.MARKER_CROSS, 24, 1)
         err_px = None
         target = self.last_step and self.last_step.get("target")
+        detections = (self.last_step or {}).get("detections") or []
+        n_faces = len(detections)
+        # All detected faces in thin gray; the LOCKED target in green.
+        # One green box at a time is the tracker's anti-crowd-snapping
+        # rule working, not a detection limit.
+        for d in detections:
+            x, y, bw, bh = int(d[0]), int(d[1]), int(d[2]), int(d[3])
+            cv2.rectangle(frame, (x, y), (x + bw, y + bh),
+                          (160, 160, 160), 1)
         if target is not None:
             x, y, bw, bh = (int(target[0]), int(target[1]),
                             int(target[2]), int(target[3]))
             cv2.rectangle(frame, (x, y), (x + bw, y + bh), (0, 220, 0), 2)
+            cv2.putText(frame, "TRACKING", (x, max(12, y - 6)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 220, 0), 1)
             err_px = ((x + bw / 2.0 - w / 2.0) ** 2
                       + (y + bh / 2.0 - h / 2.0) ** 2) ** 0.5
         st = self.state.read()
@@ -248,9 +267,10 @@ class VisualRig:
         lines = [
             "t=%6.1fs   pan=%+6.1f  tilt=%+6.1f%s" % (
                 self.t, pan, tilt, "   [IDLE SCAN]" if idle else ""),
-            "err=%s px   present=%s  in_range=%s" % (
+            "err=%s px   present=%s  in_range=%s  faces=%d" % (
                 "%5.1f" % err_px if err_px is not None else "  -- ",
-                st.get("person_present"), st.get("person_in_range")),
+                st.get("person_present"), st.get("person_in_range"),
+                n_faces),
             id_line,
             keys_line,
         ]

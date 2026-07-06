@@ -311,6 +311,7 @@ class TrackingApp:
 
         return {
             "target": target,
+            "detections": detections,
             "person_present": person_present,
             "person_in_range": person_in_range,
             "pan_out": pan_out,
