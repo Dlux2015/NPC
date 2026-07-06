@@ -100,6 +100,14 @@ back loudly to MockLLM (no crash).
    to confirmed with real prices.
 5. Optional Phase 3+: ESP32 ADC monitors servo rail voltage (spec v1.1
    battery ops).
+6. Emote display proposal (2026-07-06): round GC9A01 LCD "eyes" driven
+   from the Jetson SPI header — `hardware/emote_display.md`, BOM rows
+   added unconfirmed. Expression state machine is sim-provable now;
+   panels bench at Phase 5. Not yet adopted into the spec.
+7. Per-person memory (facts table in people.db via shared/people.py,
+   extract at conversation end, inject at greeting) — discussed
+   2026-07-06, deliberately NOT a graph DB (Neo4j rejected: ~1-2GB JVM
+   vs 8GB budget). Phase 6+ enhancement, not yet designed in detail.
 
 ## Session history (git log has detail)
 

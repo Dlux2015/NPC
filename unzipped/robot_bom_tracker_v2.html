@@ -58,7 +58,7 @@
   <div id="panel-full" class="panel active"></div>
   <div id="panel-reduced" class="panel"></div>
 
-  <div class="footer-note">Green rows are user-confirmed prices/links. Power rows are the DeWalt 20V MAX tool-pack rework proposal — not yet purchased, verify before ordering.</div>
+  <div class="footer-note">Green rows are user-confirmed prices/links. Power rows are the DeWalt 20V MAX tool-pack rework proposal — not yet purchased, verify before ordering. Emote display rows are a proposal (see hardware/emote_display.md) — not yet adopted into the build spec.</div>
 </div>
 
 <script>
@@ -80,6 +80,8 @@ const data = {
     {cat:"Power (buck, compute)",item:"Buck converter, 19V/5A output (Jetson rail)",price:12.00,source:"Amazon",link:"https://www.amazon.com/s?k=buck+converter+19v+5a",confirmed:false,note:"Never wire pack direct to Jetson - fresh pack sits ~21V, over the 19V barrel spec"},
     {cat:"Power (buck, servos)",item:"Buck converter, 6.5V/5A+ output (servo rail)",price:12.00,source:"Amazon",link:"https://www.amazon.com/s?k=buck+converter+5a+adjustable",confirmed:false,note:"Two DS3218MG stall at ~2.5A each - needs a genuine 5A-class buck"},
     {cat:"Power (safety)",item:"Low-voltage alarm/cutoff module, ~15V, qty 2",price:10.00,source:"Amazon",link:"https://www.amazon.com/s?k=low+voltage+alarm+cutoff+module+12v",confirmed:false,note:"Mandatory - tool packs have no internal discharge cutoff, over-discharge damages them"},
+    {section:"Emote display (proposal - hardware/emote_display.md)"},
+    {cat:"Display",item:"GC9A01 1.28in round LCD, 240x240 SPI, qty 2 (eyes, Jetson-driven)",price:14.00,source:"Amazon",link:"https://www.amazon.com/s?k=gc9a01+1.28+round+lcd",confirmed:false,note:"Driven from Jetson SPI header, NOT the ESP32 (protects the 50Hz servo loop) - see proposal doc"},
     {section:"Misc"},
     {cat:"Misc",item:"Wiring, connectors, standoffs, enclosure",price:30.00,source:"Amazon",link:"https://www.amazon.com/s?k=dupont+wire+jst+connector+kit",confirmed:false}
   ],
@@ -100,6 +102,8 @@ const data = {
     {cat:"Power (buck, compute)",item:"Buck converter, 19V/5A output (Jetson rail)",price:12.00,source:"Amazon",link:"https://www.amazon.com/s?k=buck+converter+19v+5a",confirmed:false,note:"Never wire pack direct to Jetson - fresh pack sits ~21V, over the 19V barrel spec"},
     {cat:"Power (buck, servos)",item:"Buck converter, 6.5V/5A+ output (servo rail)",price:12.00,source:"Amazon",link:"https://www.amazon.com/s?k=buck+converter+5a+adjustable",confirmed:false,note:"Two DS3218MG stall at ~2.5A each - needs a genuine 5A-class buck"},
     {cat:"Power (safety)",item:"Low-voltage alarm/cutoff module, ~15V, qty 2",price:10.00,source:"Amazon",link:"https://www.amazon.com/s?k=low+voltage+alarm+cutoff+module+12v",confirmed:false,note:"Mandatory - tool packs have no internal discharge cutoff, over-discharge damages them"},
+    {section:"Emote display (proposal - hardware/emote_display.md)"},
+    {cat:"Display",item:"GC9A01 1.28in round LCD, 240x240 SPI, qty 1 (single eye/face)",price:8.00,source:"Amazon",link:"https://www.amazon.com/s?k=gc9a01+1.28+round+lcd",confirmed:false,note:"Driven from Jetson SPI header, NOT the ESP32 (protects the 50Hz servo loop) - see proposal doc"},
     {section:"Misc"},
     {cat:"Misc",item:"Wiring, connectors, standoffs, enclosure",price:30.00,source:"Amazon",link:"https://www.amazon.com/s?k=dupont+wire+jst+connector+kit",confirmed:false}
   ]
