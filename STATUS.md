@@ -1,0 +1,93 @@
+# CBot — session handoff / status
+
+Last updated: 2026-07-06 (v1.1 spec era). Read this + `ORCHESTRATION.md`
+(plan of record) before resuming work. Spec: `unzipped/robot_build_spec.md`;
+BOM: `unzipped/robot_bom_tracker_v2.html`; power detail:
+`hardware/power_system.md`.
+
+## Where the project stands
+
+All software-provable work is DONE and proven in the digital twin.
+Suite: **157 passed, 2 skipped** (`python -m pytest -q`). Phases 0, 0.5,
+1(logic), 2, 4 complete + integration-reviewed + e2e-proven. Remaining
+work needs hardware: Phase 1 bench (flash ESP32, measure rail current
+incl. servo stall — v1.1 exit criterion), 2.5 (real calibration),
+3 (closed loop), 5 (Jetson memory/thermal), 6 (real SFace embedder →
+`TrackingApp(embed_cb=...)` seam), 7 (shell-swap drill).
+
+## Decisions log (don't re-litigate)
+
+- LLM: llama.cpp + CUDA, Llama-3.2-3B-Instruct Q4_K_M, 25W mode, ctx ≤2K.
+  GPU=LLM, vision=CPU (YuNet).
+- Firmware: MicroPython; easing/limits in pure-Python `firmware/easing.py`
+  imported by BOTH board and sim (never re-implement).
+- IPC event is `new_person_seq` (counter), not `new_person`.
+- Power (spec v1.1, adopted 2026-07-05): DeWalt 20V DCB205 ×2, one per
+  rail, fused adapter docks, 19V/5A + 6.5V/5A bucks, ~15V low-voltage
+  alarms MANDATORY (packs have no cutoff). Prices unconfirmed until
+  purchase.
+- Detection: YuNet primary (model at
+  `vision/models/face_detection_yunet_2023mar.onnx`, needs cv2 ≥ 4.8);
+  demo falls back to Haar automatically if YuNet can't load.
+- Tracker locks ONE face by design (anti crowd-snapping); detector sees
+  all — demo shows gray boxes for all, green for locked.
+
+## What runs right now (dev PC)
+
+```
+python -m pytest -q                          # 157 tests
+python sim/demo_full_robot.py                # whole-robot e2e story
+python sim/demo_visual.py                    # interactive virtual world
+python sim/demo_visual.py --camera 0         # webcam: real YuNet tracking
+python -m conversation.demo_talk             # live PTT voice chat (PC audio)
+python -m vision.calibrate --profile sim --auto
+```
+
+## Dev-PC environment facts (Windows 11, Python 3.10 @ C:\Python310)
+
+- **cv2 pinned 4.10.0.84** — do NOT `pip install --upgrade opencv-python`:
+  it drags numpy→2.x (breaks faster-whisper risk) and the numpy uninstall
+  fails on a locked f2py.exe anyway. 4.10 = YuNet-capable + numpy 1.26.
+- Audio installed: sounddevice, faster-whisper, **piper-tts (works on
+  Windows!)** with pinned voice `profiles/dev-pc/voices/en_US-amy-low`,
+  pyttsx3 (SAPI fallback), keyboard.
+- **User's default Windows mic is a VB-Audio virtual cable (silence!)** —
+  set `input_device` in `profiles/dev-pc/audio.json` to the real mic's
+  name substring, or change the Windows default, before demo_talk works.
+- C: drive was near-full (pip cache already purged once; ~2.9GB free).
+  Put big files (GGUF) on A:, e.g. `A:\code\CBot\models\`.
+- LLM replies are MockLLM (scripted) until a GGUF is provided via
+  `CBOT_LLM_MODEL` or profile `llm_model_path`.
+- Webcam capture: CAP_DSHOW + 640x480 + BUFFERSIZE=1 (in `_Webcam`) —
+  default MSMF buffering caused perceived lag.
+
+## Known open items (priority order)
+
+1. **No off-machine backup** — repo exists only on this PC. Set up
+   private GitHub remote + CI (pytest on push). Highest value next task.
+2. Real LLM GGUF download to `A:\code\CBot\models\` for real
+   conversations via demo_talk.
+3. User hasn't yet tested multi-face display in webcam demo (built,
+   committed, untested by user).
+4. When DeWalt parts are purchased: docs-scribe flips BOM v2 power rows
+   to confirmed with real prices.
+5. Optional Phase 3+: ESP32 ADC monitors servo rail voltage (spec v1.1
+   battery ops).
+
+## Session history (git log has detail)
+
+Phase 0 scaffold `3f32a44` → phases 0.5/1/2 `179449e` → review fixes
+(8 findings + sign-inversion & PID-gain bugs the sim caught) `d2c0852` →
+Phase 4 conversation `c214e2c` → full-robot e2e + 4 upstream fixes
+`ad6af74` → visual viewer `ec05ec1` → webcam mode `f70072b`/`5140a6c` →
+dev-PC live audio `80df349` → power rework doc `f9fcfa5` → spec v1.1
+adopted `c426fef` → webcam smoothness/multi-face `1ecc2c4`.
+
+## Working agreements that carried the project
+
+Sim-first (features pass a sim scenario before hardware); contracts in
+`shared/` are orchestrator-owned; delegations name exact files +
+acceptance criteria; integration-reviewer (Opus) on cross-module changes;
+hardware-in-the-loop steps are prepared by agents, run by the user.
+User permission scope: full permission INSIDE A:\code\CBot only; asks
+before env changes outside it.
