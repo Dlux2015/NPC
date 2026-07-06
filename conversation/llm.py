@@ -33,16 +33,26 @@ EXPECTED_MODEL_DESC = (
 N_CTX = 2048  # hard cap per ORCHESTRATION.md §3.4 / skill
 
 
+def _repo_root():
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
 def resolve_model_path(profile):
     """Where to find the GGUF file: env var CBOT_LLM_MODEL wins (handy for
     local dev/override without touching profile.yaml); otherwise the
-    active profile's `llm_model_path` key. Returns None if neither is
-    set -- that's a normal, expected state on a dev machine."""
+    active profile's `llm_model_path` key. A relative profile path is
+    resolved against the repo root (so committed profiles can say
+    `models/foo.gguf` regardless of CWD); the env var is taken as-is.
+    Returns None if neither is set -- that's a normal, expected state on
+    a dev machine."""
     env_path = os.environ.get("CBOT_LLM_MODEL")
     if env_path:
         return env_path
     if isinstance(profile, dict):
-        return profile.get("llm_model_path")
+        path = profile.get("llm_model_path")
+        if path and not os.path.isabs(path):
+            return os.path.join(_repo_root(), path)
+        return path
     return None
 
 
@@ -77,11 +87,23 @@ class LocalLLM:
                 % EXPECTED_MODEL_DESC
             ) from e
 
+        # GPU belongs to the LLM (§3.4): offload every layer by default,
+        # overridable per-profile via `llm_gpu_layers` (0 = pure CPU).
+        # Ignored gracefully by CPU-only llama.cpp builds.
+        if "n_gpu_layers" not in llama_kwargs:
+            n_gpu_layers = -1
+            if isinstance(profile, dict):
+                n_gpu_layers = profile.get("llm_gpu_layers", -1)
+            llama_kwargs["n_gpu_layers"] = n_gpu_layers
+        # llama.cpp's own load/perf chatter would drown the demo console.
+        llama_kwargs.setdefault("verbose", False)
+
         logger.info(
-            "LocalLLM: loading %s (n_ctx=%d) -- resident for process "
-            "lifetime, not reloaded per utterance.",
+            "LocalLLM: loading %s (n_ctx=%d, n_gpu_layers=%s) -- resident "
+            "for process lifetime, not reloaded per utterance.",
             self.model_path,
             self.n_ctx,
+            llama_kwargs["n_gpu_layers"],
         )
         self._llama = Llama(
             model_path=self.model_path, n_ctx=self.n_ctx, **llama_kwargs
@@ -147,8 +169,21 @@ def make_llm(profile):
     silently fall back."""
     model_path = resolve_model_path(profile)
     if model_path and os.path.isfile(model_path):
+        try:
+            llm = LocalLLM(profile, model_path=model_path)
+        except RuntimeError as e:
+            # Model file present but llama-cpp-python isn't importable in
+            # this interpreter (e.g. system Python instead of the project
+            # venv). Loud fallback, never silent.
+            logger.warning(
+                "make_llm: model file %r is present but LocalLLM could "
+                "not start (%s) -- falling back to MockLLM.",
+                model_path,
+                e,
+            )
+            return MockLLM(profile)
         logger.info("make_llm: using LocalLLM (%s)", model_path)
-        return LocalLLM(profile, model_path=model_path)
+        return llm
 
     if model_path:
         logger.warning(

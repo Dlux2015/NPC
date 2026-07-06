@@ -79,6 +79,22 @@ def test_resolve_model_path_falls_back_to_profile_key(monkeypatch):
     assert resolve_model_path(profile) == "/profile/path.gguf"
 
 
+def test_resolve_model_path_anchors_relative_profile_path_at_repo_root(
+    monkeypatch,
+):
+    monkeypatch.delenv("CBOT_LLM_MODEL", raising=False)
+    profile = {"llm_model_path": os.path.join("models", "foo.gguf")}
+    resolved = resolve_model_path(profile)
+    assert os.path.isabs(resolved)
+    # repo root = parent of the conversation/ package (namespace pkg, so
+    # anchor off a real module file in it)
+    import conversation.llm as llm_module
+    repo_root = os.path.dirname(
+        os.path.dirname(os.path.abspath(llm_module.__file__))
+    )
+    assert resolved == os.path.join(repo_root, "models", "foo.gguf")
+
+
 # --- LocalLLM (llama_cpp faked -- no real download) ---------------------
 
 class _FakeLlama:
@@ -159,6 +175,42 @@ def test_make_llm_uses_local_llm_when_model_file_present(
     profile = {"llm_model_path": str(model_file)}
     llm = make_llm(profile)
     assert isinstance(llm, LocalLLM)
+
+
+def test_local_llm_offloads_all_gpu_layers_by_default(
+    tmp_path, fake_llama_cpp_module
+):
+    model_file = tmp_path / "model.gguf"
+    model_file.write_bytes(b"stub")
+    LocalLLM(profile={}, model_path=str(model_file))
+    assert _FakeLlama.last_instance.kwargs["n_gpu_layers"] == -1
+    assert _FakeLlama.last_instance.kwargs["verbose"] is False
+
+
+def test_local_llm_gpu_layers_overridable_via_profile(
+    tmp_path, fake_llama_cpp_module
+):
+    model_file = tmp_path / "model.gguf"
+    model_file.write_bytes(b"stub")
+    LocalLLM(profile={"llm_gpu_layers": 0}, model_path=str(model_file))
+    assert _FakeLlama.last_instance.kwargs["n_gpu_layers"] == 0
+
+
+def test_make_llm_falls_back_to_mock_when_llama_cpp_not_installed(
+    tmp_path, monkeypatch, caplog
+):
+    # Model file exists (as on the dev PC), but this interpreter has no
+    # llama_cpp (e.g. system Python instead of the repo venv): make_llm
+    # must warn loudly and hand back a MockLLM, not crash.
+    monkeypatch.delenv("CBOT_LLM_MODEL", raising=False)
+    monkeypatch.setitem(sys.modules, "llama_cpp", None)
+    model_file = tmp_path / "model.gguf"
+    model_file.write_bytes(b"stub")
+    profile = {"llm_model_path": str(model_file)}
+    with caplog.at_level(logging.WARNING):
+        llm = make_llm(profile)
+    assert isinstance(llm, MockLLM)
+    assert any("MockLLM" in r.message for r in caplog.records)
 
 
 def test_local_llm_missing_llama_cpp_package_gives_clear_error(tmp_path, monkeypatch):

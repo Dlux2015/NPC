@@ -35,13 +35,20 @@ incl. servo stall — v1.1 exit criterion), 2.5 (real calibration),
 ## What runs right now (dev PC)
 
 ```
-python -m pytest -q                          # 157 tests
+python -m pytest -q                          # 161 tests
 python sim/demo_full_robot.py                # whole-robot e2e story
 python sim/demo_visual.py                    # interactive virtual world
 python sim/demo_visual.py --camera 0         # webcam: real YuNet tracking
 python -m conversation.demo_talk             # live PTT voice chat (PC audio)
 python -m vision.calibrate --profile sim --auto
 ```
+
+For the REAL LLM (not MockLLM), use the repo venv's interpreter:
+`A:\code\CBot\.venv\Scripts\python.exe -m conversation.demo_talk` —
+llama-cpp-python lives only in `.venv` (see env facts below). Verified
+2026-07-06: Llama-3.2-3B Q4_K_M on the RTX 4090 via the dev-pc profile,
+~109 tok/s, first token 0.13s. Under system python, make_llm now falls
+back loudly to MockLLM (no crash).
 
 ## Dev-PC environment facts (Windows 11, Python 3.10 @ C:\Python310)
 
@@ -56,17 +63,35 @@ python -m vision.calibrate --profile sim --auto
   name substring, or change the Windows default, before demo_talk works.
 - C: drive was near-full (pip cache already purged once; ~2.9GB free).
   Put big files (GGUF) on A:, e.g. `A:\code\CBot\models\`.
-- LLM replies are MockLLM (scripted) until a GGUF is provided via
-  `CBOT_LLM_MODEL` or profile `llm_model_path`.
+- LLM replies are REAL under the venv interpreter (GGUF wired in the
+  dev-pc profile, see below); MockLLM only under system python or if
+  the GGUF file is removed.
 - Webcam capture: CAP_DSHOW + 640x480 + BUFFERSIZE=1 (in `_Webcam`) —
   default MSMF buffering caused perceived lag.
+- **LLM integrated (2026-07-06).** GGUF at
+  `A:\code\CBot\models\Llama-3.2-3B-Instruct-Q4_K_M.gguf` (~1.9GB, from
+  HF bartowski/Llama-3.2-3B-Instruct-GGUF; gitignored). Wired via
+  `profiles/dev-pc/profile.yaml` `llm_model_path` (relative paths now
+  resolve against repo root) + `llm_gpu_layers: -1`.
+- **Repo venv `A:\code\CBot\.venv`** (`--system-site-packages`, so cv2/
+  whisper/piper come from C:\Python310). Exists because C: has <1GB free
+  and the user restricts changes to the CBot tree. Holds
+  llama-cpp-python 0.3.4 (prebuilt cu121 wheel) + nvidia-cuda-runtime/
+  cublas cu12 wheels; their DLLs (cudart64_12, cublas64_12,
+  cublasLt64_12) were COPIED into `.venv\...\llama_cpp\lib\` — the wheel
+  doesn't bundle them and there's no system CUDA toolkit. Re-copy if
+  llama-cpp-python is ever reinstalled/upgraded. Dev PC GPU: RTX 4090.
+- Shell PATH quirk: `python`/`git`/`curl` aren't on this machine's
+  PowerShell PATH — use `C:\Python310\python.exe`, the venv's python,
+  or Git Bash (which has git/curl).
 
 ## Known open items (priority order)
 
 1. **No off-machine backup** — repo exists only on this PC. Set up
    private GitHub remote + CI (pytest on push). Highest value next task.
-2. Real LLM GGUF download to `A:\code\CBot\models\` for real
-   conversations via demo_talk.
+2. User hasn't yet run demo_talk against the REAL LLM (integrated +
+   smoke-tested 2026-07-06, but live voice chat needs the mic fix below
+   and the venv interpreter).
 3. User hasn't yet tested multi-face display in webcam demo (built,
    committed, untested by user).
 4. When DeWalt parts are purchased: docs-scribe flips BOM v2 power rows

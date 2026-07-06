@@ -24,10 +24,18 @@ audio_device: default     # OS-default input/output; see audio.json below
 # own pinned voice choice per SS3.3 when Phase 2.5/4 happens for real.
 tts_model_path: voices/en_US-amy-low.onnx
 
-# llm_model_path intentionally omitted: no GGUF is expected to be present
-# on the dev PC by default, so conversation.llm.make_llm() falls back to
-# MockLLM (scripted replies) unless CBOT_LLM_MODEL is set in the
-# environment to a local Llama-3.2-3B-Instruct Q4_K_M GGUF (SS3.4).
+# Local LLM (SS3.4): Llama-3.2-3B-Instruct Q4_K_M GGUF, relative to the
+# repo root (conversation.llm.resolve_model_path anchors it there). The
+# file is gitignored (*.gguf); re-download from
+# bartowski/Llama-3.2-3B-Instruct-GGUF on Hugging Face if missing.
+# llama-cpp-python (CUDA cu121 wheel) lives in the repo venv, NOT the
+# system Python: run demos with A:\code\CBot\.venv\Scripts\python.exe.
+# Under an interpreter without llama_cpp, make_llm() falls back loudly
+# to MockLLM. CBOT_LLM_MODEL env var still overrides this key.
+llm_model_path: models/Llama-3.2-3B-Instruct-Q4_K_M.gguf
+# Layers to offload to GPU (-1 = all; dev PC has an RTX 4090, and on the
+# Jetson the GPU belongs to the LLM anyway). Set 0 to force CPU.
+llm_gpu_layers: -1
 
 # calibration.json is intentionally NOT produced for this profile: there
 # are no servos/camera to calibrate here. audio.json below is hand-written
