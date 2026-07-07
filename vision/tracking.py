@@ -165,6 +165,19 @@ def crop_face(frame, bbox):
     return frame[y0:y1, x0:x1]
 
 
+def crop_face_padded(frame, bbox, margin=0.4):
+    """face_crop_cb for the REAL SFace embedder: bbox expanded by
+    `margin` on every side (clamped to the frame). SFaceEmbedder re-runs
+    YuNet on the crop to get the landmarks alignCrop() needs, and a
+    tight crop clips the context that detection depends on. Sim/test
+    embedders keep plain crop_face -- padding would change the pixels
+    their deterministic fake embeddings are derived from."""
+    x, y, w, h = bbox[0], bbox[1], bbox[2], bbox[3]
+    pad_x, pad_y = w * margin, h * margin
+    padded = (x - pad_x, y - pad_y, w + 2 * pad_x, h + 2 * pad_y)
+    return crop_face(frame, padded)
+
+
 def embed_face(face_crop_bgr):
     """Compute a face embedding for people.py match/enroll.
 
@@ -460,12 +473,15 @@ def main(argv=None):
 
     # Phase 6 seam: real SFace embeddings when the model file is present,
     # else recognition stays inert (embed_cb=None -> embed_face stub).
+    # Real embedder gets padded crops (landmark alignment needs context);
+    # the inert stub keeps plain crop_face.
     from vision.recognition import SFACE_MATCH_THRESHOLD, make_embedder
     embedder = make_embedder(profile.get("sface_model_path"))
     match_threshold = SFACE_MATCH_THRESHOLD if embedder is not None else None
+    crop_cb = crop_face_padded if embedder is not None else crop_face
 
     app = TrackingApp(camera, detector, transport, state, calibration,
-                       face_crop_cb=crop_face, people_store=people_store,
+                       face_crop_cb=crop_cb, people_store=people_store,
                        embed_cb=embedder, match_threshold=match_threshold)
     try:
         app.run_forever(target_hz=args.fps)

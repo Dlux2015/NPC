@@ -52,7 +52,7 @@ from shared.ipc import SharedState
 from shared.people import PeopleStore
 from vision.paths import load_profile_yaml, profile_dir, repo_root
 from vision.recognition import SFACE_MATCH_THRESHOLD, make_embedder
-from vision.tracking import TrackingApp, crop_face
+from vision.tracking import TrackingApp, crop_face, crop_face_padded
 
 PROFILE_NAME = os.environ.get("CBOT_PROFILE", "dev-pc")
 RUN_DIR = os.path.join(repo_root(), "run", PROFILE_NAME)
@@ -175,20 +175,23 @@ class FriendWake:
         embedding = self._app.pop_unknown_embedding()
         if embedding is None:
             return  # recognition hasn't seen a stable face yet -- chat anonymously
+        # Deliberately short: people answer WHILE the robot is still
+        # talking, and anything said before listen_utterance() starts is
+        # discarded with the echo-guard's mic drain (first live run
+        # 2026-07-06 lost the user's "yes" exactly this way). The privacy
+        # detail moved to the yes-branch, after the decision.
         self._speaker.say(
-            "Hi there! I'm %s. I don't think we've met. "
-            "Can I be your friend? I would remember your face, "
-            "but never a picture. Yes or no?" % self._persona_name
+            "Hi! I don't think we've met. Can I be your friend?"
         )
-        reply = self._stt.listen_utterance(max_s=8.0)
+        reply = self._stt.listen_utterance(max_s=10.0)
         print('[friend] consent reply: %r' % reply)
         if is_affirmative(reply):
             pid = self._people.enroll(embedding)
             seq = self._state.get("new_person_seq") + 1
             self._state.update(person_id=str(pid), new_person_seq=seq)
             self._speaker.say(
-                "Yay, friends! If you want me to know your name, "
-                "just say: my name is, and then your name."
+                "Great! I'll remember your face -- never a picture. "
+                "To tell me your name, say: my name is, then your name."
             )
         else:
             self._declined = True
@@ -226,7 +229,8 @@ def build_vision(camera_index, state, people):
               "flow will never trigger (download: see vision/recognition.py).")
     app = TrackingApp(
         camera, detector, _NullTransport(), state, WEBCAM_CALIBRATION,
-        in_range_frac=IN_RANGE_FRAC, face_crop_cb=crop_face,
+        in_range_frac=IN_RANGE_FRAC,
+        face_crop_cb=crop_face_padded if embedder else crop_face,
         people_store=people, embed_cb=embedder,
         match_threshold=SFACE_MATCH_THRESHOLD if embedder else None,
         auto_enroll=False,

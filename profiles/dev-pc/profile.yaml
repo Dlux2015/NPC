@@ -21,11 +21,10 @@ audio_device: default     # OS-default input/output; see audio.json below
 # several Piper voices (including the British en_GB-alan-medium tried
 # for the JARVIS persona below, which read as flat/"depressed"). Kokoro
 # sounds noticeably more natural at a similar (82M) parameter count.
-# Tradeoff: slower synthesis than Piper -- ~1.1-2.2x realtime measured on
-# this dev PC's CPU-only torch build (see conversation/tts.py's
-# KokoroSynthesizer docstring); a CUDA torch build would likely speed
-# this up substantially on this PC's discrete GPU if latency ever
-# becomes noticeable in practice.
+# Speed: CUDA torch (2.12.1+cu126) installed in .venv 2026-07-06 after
+# CPU synthesis (~1.1-2.2x realtime) made replies audibly laggy --
+# KokoroSynthesizer auto-selects cuda when available; measured ~41x
+# realtime (0.13s/sentence) on the RTX 4090.
 tts_engine: kokoro
 tts_voice: am_michael   # American English male; "a"/"b" = lang_code below
 tts_lang_code: a

@@ -121,12 +121,12 @@ class KokoroSynthesizer:
 
     Chosen (2026-07-06, listening comparison) for noticeably more natural
     prosody than Piper's low/medium voices, at a similar (82M parameter)
-    model size. Tradeoff: slower synthesis -- measured ~1.1-2.2x realtime
-    on this dev PC's CPU-only torch build (the `torch` package used for
-    Silero VAD has no CUDA support here; llama-cpp-python's own bundled
-    CUDA runtime is independent of it). A CUDA-enabled torch build would
-    likely speed this up substantially on a discrete GPU -- worth
-    revisiting if per-sentence latency becomes noticeable in practice.
+    model size. Speed depends on the torch build: ~1.1-2.2x realtime on
+    CPU-only torch (audibly laggy replies) vs ~41x realtime measured on
+    an RTX 4090 with CUDA torch -- the constructor auto-selects cuda when
+    available. NOTE for the robot: the Jetson's GPU belongs to the LLM
+    (SS3.4), so Kokoro there would be CPU-only -- bench its CPU speed on
+    the Orin before considering it over Piper for a hardware profile.
 
     lang_code selects phonemizer/prosody rules ("a"=American English,
     "b"=British English -- see the kokoro package for the full list);
@@ -135,20 +135,38 @@ class KokoroSynthesizer:
     "a", bf_/bm_ -> "b") -- mismatching still runs, but sounds off.
     """
 
-    def __init__(self, voice="am_michael", lang_code="a"):
+    def __init__(self, voice="am_michael", lang_code="a", device=None):
         KPipeline = _import_kokoro()
         self.voice = voice
         self.lang_code = lang_code
         self.sample_rate = KOKORO_SAMPLE_RATE
-        self._pipeline = KPipeline(lang_code=lang_code)
+        if device is None:
+            # Prefer the GPU when this interpreter's torch has CUDA --
+            # measured ~1.1-2.2x realtime on CPU vs. far faster on GPU;
+            # per-sentence synth latency is the audible lag in replies.
+            try:
+                import torch
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+            except ImportError:
+                device = "cpu"  # kokoro itself will fail later; tests fake it
+        self.device = device
+        self._pipeline = KPipeline(lang_code=lang_code, device=device)
 
     def synthesize(self, text):
         import numpy as np
-        chunks = [
-            result.audio.numpy()
-            for result in self._pipeline(text, voice=self.voice)
-            if result.audio is not None
-        ]
+        chunks = []
+        for result in self._pipeline(text, voice=self.voice):
+            audio_t = result.audio
+            if audio_t is None:
+                continue
+            # CUDA tensors must come back to host memory before numpy();
+            # hasattr guards keep injected test fakes (bare .numpy())
+            # working too.
+            if hasattr(audio_t, "detach"):
+                audio_t = audio_t.detach()
+            if hasattr(audio_t, "cpu"):
+                audio_t = audio_t.cpu()
+            chunks.append(audio_t.numpy())
         if not chunks:
             return np.zeros(0, dtype="int16")
         audio = np.concatenate(chunks)

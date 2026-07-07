@@ -99,13 +99,15 @@ back loudly to MockLLM (no crash).
   Chosen after a listening comparison against several Piper voices
   (including en_GB-alan-medium, tried for the JARVIS persona but read as
   flat/"depressed"): Kokoro sounds materially more natural at a similar
-  (82M) parameter size. Tradeoff: slower than Piper — measured
-  ~1.1-2.2x realtime on this dev PC's CPU-only torch build (torch here
-  has no CUDA; it's a separate install from llama-cpp-python's own
-  bundled CUDA runtime). A CUDA torch build would likely speed this up
-  substantially on the RTX 4090 if per-sentence latency ever becomes
-  noticeable — not done yet, untested whether it's worth the ~2-3GB
-  extra install. `profiles/dev-pc/profile.yaml`: `tts_engine: kokoro` +
+  (82M) parameter size. Speed: `.venv` torch is now **2.12.1+cu126**
+  (CUDA; installed 2026-07-06 because CPU synthesis at ~1.1-2.2x
+  realtime made replies audibly laggy) — Kokoro auto-selects cuda,
+  measured ~41x realtime (0.13s/sentence) on the 4090. pip couldn't
+  reach download.pytorch.org (old pip 21.2.4 TLS handshake failure) but
+  curl could: wheels downloaded manually to `.venv/tmp/wheels/` and
+  pip-installed from file. Jetson note: GPU belongs to the LLM there,
+  so Kokoro-on-robot would be CPU-only — bench before adopting over
+  Piper. `profiles/dev-pc/profile.yaml`: `tts_engine: kokoro` +
   `tts_voice`/`tts_lang_code`; Piper (en_GB-alan-medium) stays configured
   as the automatic fallback if `kokoro` isn't installed in whatever
   interpreter runs the profile (`make_tts_synthesizer` tries Kokoro
@@ -139,6 +141,27 @@ back loudly to MockLLM (no crash).
      (`_wasapi_extra_settings`) on every real stream open/play.
   New tests: `conversation/tests/test_vad.py` (real-model, skipped
   without torch) + WASAPI-preference cases in `test_audio_dev.py`.
+
+## Recognition accuracy (2026-07-06, after first live demo_friend run)
+
+Live testing confirmed the unaligned-crop SFace path **mixes people
+up** (false matches) and misses returning faces. Fixes shipped:
+- `SFaceEmbedder` now landmark-aligns via its own internal YuNet pass
+  on the crop + `alignCrop()` (self-sufficient — the pinned detect()
+  API is unchanged); falls back to resize-112 only when no face is
+  found in the crop.
+- Crops for the real embedder are padded 40% (`crop_face_padded`) so
+  the landmark pass has context; sim/fake embedders keep tight
+  `crop_face` (their deterministic embeddings depend on those pixels).
+- `SFACE_MATCH_THRESHOLD` raised 0.363 → 0.45: false-accept (greeting
+  the wrong person by name) is much worse than false-reject (re-asking
+  the consent question). Tune with real faces at Phase 6 bench.
+- `run/dev-pc/people.db` purged — pre-alignment embeddings have a
+  different score distribution and must not be matched against.
+Also from that run: consent question shortened (users answer WHILE the
+robot talks; the echo-guard drain was eating early answers), and an
+unexplained exit code 5 after a run (not reproduced, no traceback —
+watch for it).
 
 ## Consent-gated enrollment (demo_friend, 2026-07-06)
 
