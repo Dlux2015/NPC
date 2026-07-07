@@ -47,9 +47,10 @@ python -m conversation.demo_talk             # live PTT voice chat (PC audio)
 python -m conversation.demo_talk --text      # typed chat, no audio stack
 python -m conversation.demo_friend           # webcam+mic: consent-gated
                                              # face enrollment + LLM chat
-python -m display.emote                      # NPC's eyes (virtual round
-                                             # screens) following live IPC
-python -m display.emote --demo               # eyes: cycle all expressions
+python -m display.emote                      # NPC's eye (red robot eye on
+                                             # a virtual round screen)
+                                             # following live IPC
+python -m display.emote --demo               # eye: cycle all expressions
 python -m vision.calibrate --profile sim --auto
 ```
 
@@ -209,11 +210,13 @@ robot solves this properly at calibration step 7.
    to confirmed with real prices.
 5. Optional Phase 3+: ESP32 ADC monitors servo rail voltage (spec v1.1
    battery ops).
-6. Emote display (2026-07-06): software v1 DONE — `display/` package
-   (expression state machine + virtual-GC9A01 eyes window following live
-   IPC; `python -m display.emote`). Hardware half still open: real
-   panels unpurchased (BOM rows unconfirmed), SPI backend + profile keys
-   land when Phase 5 does. `hardware/emote_display.md` has the plan.
+6. Emote display (2026-07-06): software v1 DONE and user-approved —
+   `display/` package: expression state machine + SINGLE RED ROBOT EYE
+   (glowing red core-as-pupil that looks around + red halo; explicitly
+   not human-styled — user direction) on a virtual GC9A01 following
+   live IPC (`python -m display.emote`). Hardware half still open: one
+   panel now (not two — BOM note when purchasing), SPI backend +
+   profile keys land when Phase 5 does. `hardware/emote_display.md`.
 7. Power+RAM budget analysis done (2026-07-06):
    `hardware/budget_analysis.md`. Verdicts: Jetson rail fine (~33W peak
    vs 95W); RAM fits with ~1.5-2GB headroom (CUDA context = biggest
