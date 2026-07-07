@@ -9,17 +9,36 @@ BOM: `unzipped/robot_bom_tracker_v2.html`; power detail:
 
 ## Where the project stands
 
-All software-provable work is DONE and proven in the digital twin.
-Suite: **157 passed, 2 skipped** (`python -m pytest -q`). Phases 0, 0.5,
-1(logic), 2, 4 complete + integration-reviewed + e2e-proven. Remaining
-work needs hardware: Phase 1 bench (flash ESP32, measure rail current
-incl. servo stall — v1.1 exit criterion), 2.5 (real calibration),
-3 (closed loop), 5 (Jetson memory/thermal), 6 (recognition — the SFace
-embedder is now REAL and wired: `vision/recognition.py`, model at
-`vision/models/face_recognition_sface_2021dec.onnx` (gitignored, 38MB,
-opencv_zoo), `tracking.main()` uses it when present, threshold 0.363
-for unaligned crops; remaining Phase 6 work = Jetson bench + ambient),
-7 (shell-swap drill).
+All software-provable work is DONE — proven in the digital twin AND
+live-verified by the user on the dev PC (webcam + mic + speakers).
+Suite: **235 passed, 2 skipped** (`.venv` interpreter). The robot's
+character is **NPC** (name-locked in all three personas; lively/
+friendly; Kokoro `am_michael` voice; single red robot eye via
+`display/`). The full experience runs today: `demo_friend` (walk-up
+wake → consent-gated enrollment → recognized-by-name conversation)
++ `display.emote` (eye follows live IPC).
+
+Remaining work needs hardware in hand: Phase 1 bench (flash ESP32,
+measure rail current incl. servo stall — decides the 5A-vs-8A servo
+buck), 2.5 (real calibration), 3 (closed loop), 5 (Jetson
+memory/thermal vs `hardware/budget_analysis.md`'s estimates; also
+first real Kokoro-on-Orin-CPU bench), 6 (Jetson recognition bench —
+the SFace embedder itself is DONE: landmark-aligned, threshold 0.40,
+EMA drift refresh — plus ambient integration), 7 (shell-swap drill).
+
+## Next session: likely pick-up points
+
+1. Nothing is blocking — hardware purchase is the true critical path
+   (BOM: `unzipped/robot_bom_tracker_v2.html`; one GC9A01, 8A-class
+   servo buck per budget analysis).
+2. Software odds and ends, all optional: CI workflow (open item 1),
+   per-person memory design (open item 8), `dev-pc-max` profile with an
+   8B LLM (discussed + declined for now — user chose documentation
+   instead; capability envelope is in `docs/SYSTEM.md` §5).
+3. If recognition misses David again: `people.match` now logs near-miss
+   scores — read the number before touching the 0.40 threshold.
+4. people.db has David enrolled (aligned embedding, EMA-refreshing).
+   `p` in the demo_friend window purges if a clean slate is wanted.
 
 ## Decisions log (don't re-litigate)
 
@@ -37,11 +56,33 @@ for unaligned crops; remaining Phase 6 work = Jetson bench + ambient),
   demo falls back to Haar automatically if YuNet can't load.
 - Tracker locks ONE face by design (anti crowd-snapping); detector sees
   all — demo shows gray boxes for all, green for locked.
+- Robot's name is **NPC** (2026-07-06), name-locked in every persona
+  ("Your name is NPC. Always NPC" — softer phrasing made the 3B model
+  hallucinate "Bleepy"). Personas are lively/friendly by user direction
+  (JARVIS-style butler tried and rejected as flat).
+- TTS: **Kokoro-82M `am_michael`** on dev-pc (Piper → SAPI as loud
+  fallback chain). Robot-side TTS remains Piper-on-CPU unless a Phase 5
+  Kokoro-CPU bench on the Orin says otherwise.
+- Recognition: SFace landmark-aligned (embedder runs its own YuNet pass
+  + alignCrop), threshold **0.40**, `people.match` EMA-refreshes stored
+  embeddings on confident matches (appearance drift) and logs near-miss
+  scores. Enrollment is **consent-gated** in demo_friend
+  (auto_enroll=False); silent auto-enroll remains the spec default for
+  the robot until the IPC enroll handshake is designed.
+- Eye: single RED robot eye (core-as-pupil + halo; not human-styled) —
+  `display/`; one GC9A01 panel needed, not two.
+- Survivability guards (2026-07-06, all test-pinned): LLM replies
+  capped at MAX_REPLY_TOKENS=220; recognition worker survives bad
+  ticks; pipeline.run_forever survives failed turns with backoff. Full
+  degradation ladder: `docs/SYSTEM.md` §6.
+- Never overlap two CUDA runtimes in one process (llama.cpp + torch):
+  native 0xC0000005 crashes. demo_friend serializes via _BufferedLLM;
+  robot is immune by design (GPU=LLM only).
 
 ## What runs right now (dev PC)
 
 ```
-python -m pytest -q                          # 213 tests
+python -m pytest -q                          # 235 tests
 python sim/demo_full_robot.py                # whole-robot e2e story
 python sim/demo_visual.py                    # interactive virtual world
 python sim/demo_visual.py --camera 0         # webcam: real YuNet tracking
@@ -161,11 +202,20 @@ up** (false matches) and misses returning faces. Fixes shipped:
   `crop_face` (their deterministic embeddings depend on those pixels).
 - `SFACE_MATCH_THRESHOLD` raised 0.363 → 0.45: false-accept (greeting
   the wrong person by name) is much worse than false-reject (re-asking
-  the consent question). Tune with real faces at Phase 6 bench.
+  the consent question).
 - `run/dev-pc/people.db` purged — pre-alignment embeddings have a
   different score distribution and must not be matched against.
 Also from that run: consent question shortened (users answer WHILE the
 robot talks; the echo-guard drain was eating early answers).
+
+**Threshold follow-up (later same day):** 0.45 then MISSED the same
+person across a lighting change (matched afternoon, failed evening —
+landed back in the consent flow, where "Still me." isn't a yes).
+Fixes (`9250d50`): threshold → **0.40**, `people.match()` now
+EMA-blends the stored embedding toward every confident match
+(DEFAULT_REFRESH_ALPHA=0.1) so enrollments track appearance drift
+instead of decaying, and near-miss scores are logged — future tuning
+uses the logged numbers, not guesses.
 
 **Live-verified by the user (5 rounds, 2026-07-06), all green by round
 5:** consent flow (heard "Sure", enrolled), name capture ("my name is
@@ -220,10 +270,10 @@ cross-documented.
 1. CI: pytest on push (private remote EXISTS as of 2026-07-06:
    https://github.com/Dlux2015/CBot, origin/master, push via gh auth).
    Note: CI runners have no GPU/GGUF — suite already mock-based, fine.
-2. User hasn't yet run demo_talk (live PTT mode) against the REAL LLM
-   with real voice -- LLM integration and live mic/TTS are each verified
-   working (2026-07-06) but not yet exercised together in one session.
-   Needs the venv interpreter + torch/torchaudio (see mic fixes above).
+2. ~~Live voice + real LLM together~~ SUPERSEDED: demo_friend runs the
+   whole stack live (verified repeatedly 2026-07-06). Only the PTT
+   *window* demo (demo_talk live mode) remains unexercised — low value
+   now, face_speech wake replaced it in practice.
 3. User hasn't yet tested multi-face display in webcam demo (built,
    committed, untested by user).
 4. When DeWalt parts are purchased: docs-scribe flips BOM v2 power rows
@@ -256,6 +306,19 @@ Phase 4 conversation `c214e2c` → full-robot e2e + 4 upstream fixes
 `ad6af74` → visual viewer `ec05ec1` → webcam mode `f70072b`/`5140a6c` →
 dev-PC live audio `80df349` → power rework doc `f9fcfa5` → spec v1.1
 adopted `c426fef` → webcam smoothness/multi-face `1ecc2c4`.
+
+**2026-07-06 marathon session** (real LLM → full live robot-on-a-desk):
+LLM integrated (GGUF + CUDA venv) `b907a75` → text chat `4f2d014` →
+private GitHub remote `be8d556` → emote proposal `a090dae` → power+RAM
+analysis `bed4577` → live-audio fixes (Silero 512, mic privacy, WASAPI)
+`61982e2` → SFace recognition + consent-gated friend demo `392a654` →
+Kokoro TTS `72c2441` → JARVIS persona (rejected) `1582fd8` → listen-cue
+chirp + NPC persona `b6bca49` → GPU serialization (0xC0000005 fix)
+`cb045c9` → 5-round live verification `310252c` → robot named NPC
+everywhere `dc6d30d` → emote eye v1 `a40396f` → red robot eye redesign
+`7a93caf` → power/readability audit + tracking idle-relax `d37705f` →
+recognition drift fix (0.40 + EMA refresh) `9250d50` → docs/SYSTEM.md +
+survivability guards `910b474`.
 
 ## Working agreements that carried the project
 
