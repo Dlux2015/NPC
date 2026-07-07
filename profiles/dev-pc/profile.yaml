@@ -17,12 +17,17 @@ audio_device: default     # OS-default input/output; see audio.json below
 
 # Piper voice for conversation/demo_talk.py, path relative to this profile
 # directory (resolved by demo_talk.py, not by conversation/tts.py directly).
-# Downloaded via `python -m piper.download_voices en_US-amy-low` --
+# Downloaded via `python -m piper.download_voices en_US-ryan-high` --
 # version-pinned by committing the exact .onnx + .onnx.json pair; re-run
 # the same download_voices command to reproduce it byte-for-byte.
+# Chose "high" tier over amy-low (2026-07-06 listening comparison against
+# amy-medium/lessac-medium/hfc_female-medium): low-tier Piper voices are
+# noticeably robotic; high-tier sounds materially more natural. Costs
+# ~120MB and a bit more synth time per sentence -- fine on this GPU/CPU,
+# revisit if it ever becomes the bottleneck vs. LLM streaming latency.
 # NOT wired up for bench-naked/printed-shell profiles -- those get their
 # own pinned voice choice per SS3.3 when Phase 2.5/4 happens for real.
-tts_model_path: voices/en_US-amy-low.onnx
+tts_model_path: voices/en_US-ryan-high.onnx
 
 # Local LLM (SS3.4): Llama-3.2-3B-Instruct Q4_K_M GGUF, relative to the
 # repo root (conversation.llm.resolve_model_path anchors it there). The
