@@ -109,15 +109,23 @@ class EchoGuardSTT:
     robot. Drained frames are detected by wall-clock: buffered frames
     return near-instantly, live frames take ~frame duration to arrive.
     (The real robot solves self-hearing at calibration step 7; this is
-    the dev-PC equivalent, kept demo-side on purpose.)"""
+    the dev-PC equivalent, kept demo-side on purpose.)
 
-    def __init__(self, stt, mic, sample_rate=SAMPLE_RATE, frame_ms=32):
+    `listen_cue` (optional callable) fires after the drain, right before
+    real listening starts -- wired to a short beep so the user KNOWS
+    when to talk. Without it, anything said during the robot's own
+    speech or the drain is silently discarded and the user can't tell
+    (exactly how the first two live runs lost the consent "yes")."""
+
+    def __init__(self, stt, mic, sample_rate=SAMPLE_RATE, frame_ms=32,
+                 listen_cue=None):
         self._stt = stt
         self._mic = mic
         self._frame_samples = int(sample_rate * frame_ms / 1000)
         self._frame_s = frame_ms / 1000.0
+        self._listen_cue = listen_cue
 
-    def _drain(self, max_frames=120):
+    def _drain(self, max_frames=240):
         for _ in range(max_frames):
             t0 = time.perf_counter()
             self._mic.read(self._frame_samples)
@@ -126,7 +134,31 @@ class EchoGuardSTT:
 
     def listen_utterance(self, max_s=10.0):
         self._drain()
-        return self._stt.listen_utterance(max_s=max_s)
+        if self._listen_cue is not None:
+            self._listen_cue()
+        print("[friend] listening...", flush=True)
+        text = self._stt.listen_utterance(max_s=max_s)
+        print("[friend] heard: %r" % text, flush=True)
+        return text
+
+
+def make_listen_beep(sink, sample_rate=SAMPLE_RATE):
+    """Short soft two-tone chirp -> 'your turn to talk'. Tonal, not
+    speech-like, so Silero VAD won't mistake its echo for an utterance."""
+    def tone(freq, dur_s):
+        t = np.arange(int(sample_rate * dur_s)) / sample_rate
+        w = np.sin(2 * np.pi * freq * t)
+        fade = min(len(w) // 4, int(sample_rate * 0.01))
+        if fade:
+            w[:fade] *= np.linspace(0, 1, fade)
+            w[-fade:] *= np.linspace(1, 0, fade)
+        return w
+    chirp = np.concatenate([tone(660, 0.07), tone(990, 0.09)])
+    samples = (0.3 * 32767 * chirp).astype(np.int16)
+
+    def play():
+        sink.play(samples, sample_rate=sample_rate)
+    return play
 
 
 class FriendWake:
@@ -257,17 +289,22 @@ def build_conversation(state, people, tracking_app, stt_model_size="base"):
     from conversation.demo_talk import make_tts_synthesizer
     synthesizer, tts_backend = make_tts_synthesizer(profile_yaml)
     print("TTS backend: %s" % tts_backend)
+    sink = SpeakerSink(audio_config)
     speaker = Speaker(profile_yaml, state, synthesizer=synthesizer,
-                       sink=SpeakerSink(audio_config), audio_config=audio_config)
+                       sink=sink, audio_config=audio_config)
 
     # One shared MicStream: wake's VAD polls it, then STT listens on it --
     # strictly sequential (same pipeline thread), never concurrent.
     inner_wake = WakeTrigger(profile_yaml, state, mic_source=mic,
                               ptt_poll=lambda: False, audio_config=audio_config)
+    # min_speech_s below DirectedSTT's 0.2 default: one-word answers
+    # ("yes") can be under 0.2s of VAD-positive frames and were being
+    # discarded as blips in live runs.
     stt = EchoGuardSTT(
         DirectedSTT(profile_yaml, mic_source=mic, model=whisper_model,
-                     audio_config=audio_config),
+                     audio_config=audio_config, min_speech_s=0.1),
         mic,
+        listen_cue=make_listen_beep(sink),
     )
     wake = FriendWake(inner_wake, tracking_app, state, people, speaker, stt,
                        persona_name=_persona_display_name(profile_yaml))
@@ -308,6 +345,12 @@ def _draw_hud(cv2, frame, status, state, people):
 
 def run_live(camera_index, stt_model_size="base"):
     import cv2
+    import logging
+
+    # Pipeline/wake/llm modules log turn-by-turn detail (wake events,
+    # utterance timeouts, name capture) -- surface it for live debugging.
+    logging.basicConfig(level=logging.INFO,
+                        format="%(levelname)s %(name)s: %(message)s")
 
     os.makedirs(RUN_DIR, exist_ok=True)
     state = SharedState(os.path.join(RUN_DIR, "state.json"))

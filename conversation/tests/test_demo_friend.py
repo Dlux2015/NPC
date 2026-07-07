@@ -27,6 +27,32 @@ def test_non_affirmative_variants(text):
     assert is_affirmative(text) is False
 
 
+# --- EchoGuardSTT listen cue --------------------------------------------------
+
+def test_echo_guard_fires_cue_after_drain_and_before_listening():
+    from conversation.demo_friend import EchoGuardSTT
+
+    events = []
+
+    class InstantMic:
+        def read(self, n):
+            events.append("read")
+            return np.zeros(n, dtype=np.int16)
+
+    class RecordingSTT:
+        def listen_utterance(self, max_s=10.0):
+            events.append("listen")
+            return "hi"
+
+    guard = EchoGuardSTT(RecordingSTT(), InstantMic(),
+                          listen_cue=lambda: events.append("cue"))
+    assert guard.listen_utterance() == "hi"
+
+    cue_at, listen_at = events.index("cue"), events.index("listen")
+    assert cue_at < listen_at                     # cue strictly before listen
+    assert "read" in events[:cue_at]              # drain happened before cue
+
+
 # --- FriendWake --------------------------------------------------------------
 
 class FakeInnerWake:
