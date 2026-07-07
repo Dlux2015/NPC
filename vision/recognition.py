@@ -42,16 +42,17 @@ DEFAULT_MODEL_PATH = os.path.join(
 
 # Cosine-similarity match threshold for people.match() when embeddings
 # come from THIS embedder. SFace's published verification threshold is
-# 0.363 (aligned crops, LFW-tuned). Set higher here on purpose: live
-# testing (2026-07-06) showed 0.363 produced false matches between
-# different people, and the failure modes are asymmetric -- greeting the
-# wrong person by name is far worse than failing to recognize someone
-# (which just re-asks the friendly consent question). Aligned genuine
-# pairs typically score well above 0.5; 0.45 trades a little recall for
-# much safer identity. Tune against real faces at the Phase 6 bench.
-# (people.py's default MATCH_THRESHOLD (0.55) predates the real
-# embedder -- pass this explicitly via TrackingApp's match_threshold.)
-SFACE_MATCH_THRESHOLD = 0.45
+# 0.363 (aligned crops, LFW-tuned). Live tuning history (2026-07-06):
+# 0.363 unaligned produced false matches between different people;
+# alignment landed and the threshold went to 0.45 -- which then MISSED
+# the same person across a lighting change (matched in afternoon light,
+# fell below 0.45 in the evening). 0.40 splits the difference: aligned
+# different-person scores sit far lower, so mix-up risk stays small,
+# and people.match()'s embedding refresh (DEFAULT_REFRESH_ALPHA) now
+# tracks appearance drift so cross-session scores stop decaying.
+# people.match() logs near-miss scores -- use those numbers, not
+# guesswork, for the final Phase 6 bench tuning.
+SFACE_MATCH_THRESHOLD = 0.40
 
 _INPUT_SIZE = (112, 112)  # SFace fixed input
 

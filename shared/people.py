@@ -4,11 +4,14 @@ Vision enrolls embeddings and matches faces; conversation writes learned
 names. Nobody else touches the DB file. Embeddings only — never images.
 SQLite, stdlib-only except numpy for cosine matching.
 """
+import logging
 import sqlite3
 import threading
 import time
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS people (
@@ -21,7 +24,17 @@ CREATE TABLE IF NOT EXISTS people (
 );
 """
 
-MATCH_THRESHOLD = 0.55  # cosine similarity; tune against SFace in Phase 6
+MATCH_THRESHOLD = 0.55  # generic default; SFace callers pass
+                        # vision.recognition.SFACE_MATCH_THRESHOLD
+
+# On a confident match, the stored embedding is blended toward the query
+# by this factor (exponential moving average): people's appearance drifts
+# across sessions (lighting, angle, hair), and a single frozen enrollment
+# embedding demonstrably decays -- live testing 2026-07-06 had the same
+# person match in afternoon light and miss in evening light. Small alpha
+# so an (unlikely, above-threshold) wrong match poisons slowly enough to
+# notice; 0 disables refresh entirely.
+DEFAULT_REFRESH_ALPHA = 0.1
 
 
 class PeopleStore:
@@ -52,15 +65,21 @@ class PeopleStore:
         self.db.commit()
         return cur.lastrowid
 
-    def match(self, embedding, threshold=MATCH_THRESHOLD):
+    def match(self, embedding, threshold=MATCH_THRESHOLD,
+              refresh_alpha=DEFAULT_REFRESH_ALPHA):
         """Best cosine match above threshold → (id, name, score) or None.
-        Also bumps last_seen on a hit."""
+        On a hit: bumps last_seen and (unless refresh_alpha=0) blends the
+        stored embedding toward the query so recognition tracks gradual
+        appearance drift (see DEFAULT_REFRESH_ALPHA). On a miss with
+        candidates present, logs the best below-threshold score --
+        that number is what threshold tuning needs (Phase 6 bench)."""
         emb = np.asarray(embedding, dtype=np.float32)
         n = np.linalg.norm(emb)
         if n == 0:
             return None
         emb = emb / n
         best = None
+        best_below = None  # (score, pid) of the nearest miss, for tuning
         with self._lock:
             for pid, name, blob, dim in self.db.execute(
                 "SELECT id, name, embedding, dim FROM people"
@@ -74,13 +93,46 @@ class PeopleStore:
                 score = float(np.dot(emb, other / on))
                 if score >= threshold and (best is None or score > best[2]):
                     best = (pid, name, score)
+                elif score < threshold and (
+                        best_below is None or score > best_below[0]):
+                    best_below = (score, pid)
             if best:
                 self.db.execute(
                     "UPDATE people SET last_seen=? WHERE id=?",
                     (time.time(), best[0]),
                 )
+                if refresh_alpha:
+                    self._refresh_embedding_locked(best[0], emb, refresh_alpha)
                 self.db.commit()
+        if best is None and best_below is not None:
+            logger.info(
+                "people.match miss: best score %.3f (person %s) below "
+                "threshold %.3f", best_below[0], best_below[1], threshold,
+            )
         return best
+
+    def _refresh_embedding_locked(self, person_id, query_unit, alpha):
+        """EMA-blend the stored embedding toward a freshly-matched query
+        (both unit-normalized; result re-normalized). Caller holds _lock
+        and commits."""
+        row = self.db.execute(
+            "SELECT embedding FROM people WHERE id=?", (person_id,)
+        ).fetchone()
+        if not row:
+            return
+        stored = np.frombuffer(row[0], dtype=np.float32)
+        norm = np.linalg.norm(stored)
+        if norm == 0 or stored.size != query_unit.size:
+            return
+        blended = (1.0 - alpha) * (stored / norm) + alpha * query_unit
+        bnorm = np.linalg.norm(blended)
+        if bnorm == 0:
+            return
+        blended = (blended / bnorm).astype(np.float32)
+        self.db.execute(
+            "UPDATE people SET embedding=? WHERE id=?",
+            (blended.tobytes(), person_id),
+        )
 
     def set_name(self, person_id, name):
         with self._lock:
