@@ -53,6 +53,25 @@ def test_echo_guard_fires_cue_after_drain_and_before_listening():
     assert "read" in events[:cue_at]              # drain happened before cue
 
 
+# --- _BufferedLLM -------------------------------------------------------------
+
+def test_buffered_llm_drains_fully_before_yielding():
+    from conversation.demo_friend import _BufferedLLM
+
+    events = []
+
+    class SlowLLM:
+        def generate_stream(self, messages):
+            for chunk in ["Hello ", "there", "."]:
+                events.append("gen")
+                yield chunk
+
+    stream = _BufferedLLM(SlowLLM()).generate_stream([])
+    # generation must be complete before the first chunk is consumed
+    assert events == ["gen", "gen", "gen"]
+    assert "".join(stream) == "Hello there."
+
+
 # --- FriendWake --------------------------------------------------------------
 
 class FakeInnerWake:

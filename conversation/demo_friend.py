@@ -88,6 +88,26 @@ def is_affirmative(text):
     return bool(words & AFFIRMATIVE_WORDS)
 
 
+class _BufferedLLM:
+    """generate_stream that drains the model FULLY before yielding.
+
+    Why: in this demo the LLM (llama.cpp, its own bundled CUDA runtime)
+    and Kokoro TTS (torch CUDA) share one GPU in one process, and the
+    pipeline's sentence-streaming deliberately overlaps them (speak
+    sentence 1 while generating sentence 2). Two live runs died in
+    native access violations (exit code 0xC0000005, reported as 5)
+    mid-reply -- concurrent use of two independent CUDA runtimes is the
+    prime suspect. Serializing them costs <1s at ~110 tok/s.
+    The robot proper doesn't have this problem: its TTS (Piper) is CPU,
+    and the GPU belongs to the LLM alone (SS3.4)."""
+
+    def __init__(self, inner):
+        self._inner = inner
+
+    def generate_stream(self, messages):
+        return iter(list(self._inner.generate_stream(messages)))
+
+
 class _NullTransport:
     """No servos on the dev PC; TrackingApp still writes target lines."""
 
@@ -285,6 +305,7 @@ def build_conversation(state, people, tracking_app, stt_model_size="base"):
     print("LLM backend: %s"
           % ("MockLLM (scripted -- run under .venv for the real model)"
              if isinstance(llm, MockLLM) else "LocalLLM"))
+    llm = _BufferedLLM(llm)  # serialize GPU: LLM finishes before TTS starts
 
     from conversation.demo_talk import make_tts_synthesizer
     synthesizer, tts_backend = make_tts_synthesizer(profile_yaml)
