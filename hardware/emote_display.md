@@ -1,9 +1,13 @@
 # Emote display — round LCD "eyes" proposal
 
-**Status: PROPOSAL (2026-07-06)** — not yet adopted into the build spec.
-BOM rows added to `unzipped/robot_bom_tracker_v2.html` as unconfirmed.
-Adoption would touch ORCHESTRATION §4.2 (one new IPC key, v2 only) and
-§4.5 (shell constraints below).
+**Status: PROPOSAL (2026-07-06); software v1 IMPLEMENTED same day** —
+`display/expressions.py` (state machine) + `display/emote.py` (window
+renderer, two virtual GC9A01s) + `display/tests/`. Run
+`python -m display.emote` beside any demo and the eyes follow the live
+IPC state; `--demo` cycles expressions. Hardware (real panels, BOM
+rows) still unpurchased/not adopted into the build spec. Adoption would
+touch ORCHESTRATION §4.2 (one new IPC key, v2 only) and §4.5 (shell
+constraints below).
 
 Goal: the head visibly *emotes* — idle/alert/listening/thinking/talking
 expressions on one or two round displays behind the shell's eye
