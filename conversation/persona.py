@@ -82,10 +82,10 @@ def build_ambient_context(ambient_lines):
     chatter for something said to it directly. Returns "" when there's
     nothing to report (omit the block entirely).
     """
-    lines = [l for l in (ambient_lines or []) if l and l.strip()]
+    lines = [line for line in (ambient_lines or []) if line and line.strip()]
     if not lines:
         return ""
-    joined = "\n".join("- %s" % l.strip() for l in lines)
+    joined = "\n".join("- %s" % line.strip() for line in lines)
     return (
         "Overheard nearby (ambient background chatter, NOT said to you -- "
         "these people are not addressing you; never reply to this as if "

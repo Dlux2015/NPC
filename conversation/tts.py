@@ -18,7 +18,6 @@ call's samples to a WAV file under a temp dir instead of a real speaker.
 import os
 import re
 import tempfile
-import time
 
 from conversation.audio_dev import SAMPLE_RATE, load_audio_config, write_wav_int16
 
@@ -29,7 +28,12 @@ def split_sentences(text):
     """Simple punctuation-based sentence splitter -- good enough for
     persona replies (1-3 short sentences, SS3.4); not a general NLP
     tokenizer. Useful for callers who have full text up front but still
-    want sentence-streamed playback."""
+    want sentence-streamed playback.
+
+    Same name, different input than conversation/pipeline.py's
+    split_sentences: this one takes a complete string; pipeline's takes
+    an ITERATOR of LLM chunks and yields sentences as they complete
+    (that's the one that lets speech start before generation ends)."""
     text = (text or "").strip()
     if not text:
         return []

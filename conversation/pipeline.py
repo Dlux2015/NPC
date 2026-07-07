@@ -21,7 +21,6 @@ PeopleStore (or anything with the same match/get/set_name surface).
 """
 import logging
 import re
-import time
 
 from conversation.persona import (
     build_ambient_context,
@@ -74,6 +73,10 @@ def split_sentences(chunk_iter):
     """Turn an iterator of raw text chunks (as produced by
     llm.generate_stream) into an iterator of complete sentences, so the
     speaker can start talking before the model has finished generating.
+
+    Same name, different input than conversation/tts.py's
+    split_sentences (that one takes a complete string, for callers with
+    the full text up front).
 
     A sentence boundary is recognized as sentence-ending punctuation
     (. ! ?) followed by whitespace; whatever's left in the buffer when

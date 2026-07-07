@@ -169,7 +169,11 @@ def run(state_path, demo=False, fps=30.0):
         cv2.putText(frame, expression, (8, PANEL - 10),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.45, (60, 50, 90), 1)
         cv2.imshow("NPC eye", frame)
-        key = cv2.waitKey(max(1, int(period * 1000) -
+        # Power: idle is a slow breathing pulse -- half the frame rate is
+        # visually identical and halves this process's steady-state CPU
+        # (matters on the battery-powered robot, harmless on the dev PC).
+        wanted = period * 2 if expression == IDLE else period
+        key = cv2.waitKey(max(1, int(wanted * 1000) -
                                int((time.monotonic() - loop_t) * 1000))) & 0xFF
         if key in (ord("q"), 27):
             break

@@ -23,7 +23,7 @@ def test_ping_gets_pong_and_counts_as_heartbeat():
     servo.read_lines()  # drop initial angle report
     servo.inject_line(sp.encode_ping())
     servo.step(0.02)
-    replies = [sp.parse_line(l) for l in servo.read_lines()]
+    replies = [sp.parse_line(line) for line in servo.read_lines()]
     assert ("pong",) in replies
     assert not servo.head.is_idle(servo.now)
 

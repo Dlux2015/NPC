@@ -425,14 +425,30 @@ class TrackingApp:
             self._recognition_thread.join(timeout=1.0)
         self._writer.stop()
 
-    def run_forever(self, target_hz=30.0, stop_flag=None):
+    def run_forever(self, target_hz=30.0, stop_flag=None,
+                     idle_hz=None, idle_after_s=10.0):
+        """Frame loop pacing. target_hz is the full tracking rate (>=30
+        per SS3.1). idle_hz, if set, is a power-saving relaxed rate used
+        once nobody has been seen for idle_after_s: detection still runs
+        (arrivals are noticed), just less often -- worst case one idle
+        period of extra latency on first notice, then full rate resumes
+        on the very next frame. On the Jetson, always-on 30fps detection
+        is the largest CONSTANT CPU/power load in the system, and a
+        convention robot spends much of its day looking at nobody."""
         period = 1.0 / target_hz
+        idle_period = None if idle_hz is None else 1.0 / idle_hz
+        last_present_t = self.clock()
         while stop_flag is None or not stop_flag():
             t0 = self.clock()
-            self.step()
+            status = self.step()
+            if status is not None and status["person_present"]:
+                last_present_t = t0
+            relax = (idle_period is not None
+                     and self.clock() - last_present_t >= idle_after_s)
+            wanted = idle_period if relax else period
             elapsed = self.clock() - t0
-            if elapsed < period:
-                time.sleep(period - elapsed)
+            if elapsed < wanted:
+                time.sleep(wanted - elapsed)
 
 
 # ---------------------------------------------------------------------------
@@ -444,6 +460,11 @@ def main(argv=None):
     parser.add_argument("--profile", default=None,
                          help="defaults to $CBOT_PROFILE, then 'sim'")
     parser.add_argument("--fps", type=float, default=30.0)
+    parser.add_argument("--idle-fps", type=float, default=10.0,
+                         help="relaxed detection rate after --idle-after "
+                              "seconds with nobody in frame (power saving); "
+                              "0 disables")
+    parser.add_argument("--idle-after", type=float, default=10.0)
     args = parser.parse_args(argv)
 
     name = args.profile or os.environ.get("CBOT_PROFILE", "sim")
@@ -484,7 +505,9 @@ def main(argv=None):
                        face_crop_cb=crop_cb, people_store=people_store,
                        embed_cb=embedder, match_threshold=match_threshold)
     try:
-        app.run_forever(target_hz=args.fps)
+        app.run_forever(target_hz=args.fps,
+                         idle_hz=args.idle_fps or None,
+                         idle_after_s=args.idle_after)
     finally:
         app.close()
     return 0

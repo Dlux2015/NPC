@@ -3,7 +3,6 @@ backends faked (mic, VAD, wakeword model, PTT poll) -- no audio hardware,
 no openWakeWord/Silero, no keyboard library required.
 """
 import numpy as np
-import pytest
 
 from conversation.wake import WakeTrigger
 from conversation.tests._audio_fakes import FakeClock, ScriptedVAD

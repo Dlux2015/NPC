@@ -1,7 +1,6 @@
 import threading
 
 import numpy as np
-import pytest
 
 from shared import ipc, serial_protocol
 from vision.detector import SyntheticDetector
@@ -182,6 +181,56 @@ def test_step_never_writes_ipc_directly_writer_owns_the_disk_call(tmp_path):
         assert caller_thread_ids, "writer never reached SharedState.update"
     finally:
         app.close()
+
+
+def test_run_forever_relaxes_detection_rate_when_alone(tmp_path, monkeypatch):
+    """Power: after idle_after_s with nobody in frame, the frame loop
+    paces at idle_hz instead of target_hz -- and snaps back to full rate
+    the moment a face appears (the Jetson's always-on detection is the
+    system's largest constant power draw; see run_forever docstring)."""
+    import vision.tracking as tracking_module
+
+    detections = {"boxes": []}
+    camera = FakeCamera()
+    detector = SyntheticDetector(lambda f: detections["boxes"])
+    state = ipc.SharedState(str(tmp_path / "state.json"))
+    box, clock = _clock_box(0.0)
+    app = TrackingApp(camera, detector, FakeTransport(), state,
+                       _calibration(), clock=clock)
+
+    sleeps = []
+
+    class FakeTime:
+        @staticmethod
+        def sleep(s):
+            sleeps.append(round(s, 4))
+            box[0] += s
+
+        monotonic = staticmethod(clock)
+
+    monkeypatch.setattr(tracking_module, "time", FakeTime)
+
+    counter = {"n": 0}
+
+    def stop_flag():
+        counter["n"] += 1
+        if counter["n"] == 60:
+            detections["boxes"] = [(250, 150, 150, 150, 0.9)]  # someone walks up
+        return counter["n"] > 70
+
+    try:
+        app.run_forever(target_hz=30.0, stop_flag=stop_flag,
+                         idle_hz=10.0, idle_after_s=1.0)
+    finally:
+        app.close()
+
+    full, idle = round(1 / 30.0, 4), round(1 / 10.0, 4)
+    assert sleeps[0] == full            # starts at full rate
+    assert idle in sleeps               # relaxed once alone long enough
+    assert sleeps[-1] == full           # back to full rate with a face
+    # ordering: every idle-paced frame sits between full-rate stretches
+    first_idle = sleeps.index(idle)
+    assert all(s == full for s in sleeps[:first_idle])
 
 
 def test_recognition_consent_mode_stashes_instead_of_enrolling(tmp_path):

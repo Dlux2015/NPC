@@ -4,7 +4,6 @@ feature's sim scenario per the sim-first rule (the renderer itself is
 eyeballed via `python -m display.emote --demo`; only geometry lives
 there)."""
 import numpy as np
-import pytest
 
 from display.expressions import (
     ALERT, IDLE, LISTENING, NEUTRAL, SURPRISED, TALKING,
@@ -127,7 +126,7 @@ def test_renderer_produces_frames_that_differ_by_expression():
 def test_renderer_is_red_dominant_and_round():
     """The eye is RED (user direction: robot eye, red core + red halo,
     not a human eye) and confined to the round panel."""
-    from display.emote import EyeRenderer, PANEL
+    from display.emote import EyeRenderer
 
     clock = FakeClock()
     r = EyeRenderer(clock=clock)

@@ -6,7 +6,6 @@ waits, no audio hardware required).
 import time
 
 import numpy as np
-import pytest
 
 from conversation.ambient import AmbientBuffer
 from shared.ipc import SharedState

@@ -8,7 +8,6 @@ stt, speaker) or for shared/ipc.py's SharedState (kept as a lightweight
 fake here per the task brief; shared/ipc.py itself is covered by its own
 tests elsewhere).
 """
-import os
 
 import pytest
 

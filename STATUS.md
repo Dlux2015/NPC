@@ -195,6 +195,24 @@ that contract change). EchoGuardSTT (demo-side) drains mic backlog
 after TTS so the robot doesn't transcribe its own voice tail — real
 robot solves this properly at calibration step 7.
 
+## Power/readability audit (2026-07-06)
+
+Reviewed every always-running loop against the battery budget. Already
+correct by design (verified, left alone): firmware sleeps out each 20ms
+tick allocation-free; ThreadedStateWriter is event-driven (no idle
+polling); wake polls at ~12Hz and runs Silero VAD only when
+person_in_range; ambient is duty-cycled and pauses while speaking; all
+models load once and stay resident. Changes made: **tracking idle-relax**
+(`run_forever(idle_hz=, idle_after_s=)`, CLI `--idle-fps`, default 10fps
+after 10s alone — always-on 30fps YuNet is the system's largest constant
+power draw and a convention robot spends much of its day looking at
+nobody; snaps back to full rate on the first frame with a face);
+emote eye renders at half rate while idle. Also: ruff installed in
+`.venv` (`python -m ruff check ... --select F,E7,E9` is the clean bar),
+unused imports purged, ambiguous names fixed, the two same-named
+`split_sentences` (tts.py=string, pipeline.py=chunk iterator)
+cross-documented.
+
 ## Known open items (priority order)
 
 1. CI: pytest on push (private remote EXISTS as of 2026-07-06:

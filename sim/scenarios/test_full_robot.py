@@ -48,7 +48,6 @@ something introduced by the sim -- reported here, not silently patched
 in shared/people.py.
 """
 import os
-import sqlite3
 
 import numpy as np
 import pytest
