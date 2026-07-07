@@ -233,7 +233,8 @@ class FriendWake:
         # 2026-07-06 lost the user's "yes" exactly this way). The privacy
         # detail moved to the yes-branch, after the decision.
         self._speaker.say(
-            "Hi! I don't think we've met. Can I be your friend?"
+            "Hi, I'm %s! I don't think we've met. Can I be your friend?"
+            % self._persona_name
         )
         reply = self._stt.listen_utterance(max_s=10.0)
         print('[friend] consent reply: %r' % reply)
@@ -404,7 +405,7 @@ def run_live(camera_index, stt_model_size="base"):
             frame = camera.last_frame
             if frame is not None:
                 hud = _draw_hud(cv2, frame.copy(), status, state, people)
-                cv2.imshow("CBot friend demo", hud)
+                cv2.imshow("NPC", hud)
             key = cv2.waitKey(30) & 0xFF
             if key in (ord("q"), 27):
                 break

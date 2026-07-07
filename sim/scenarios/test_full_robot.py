@@ -416,7 +416,7 @@ def test_full_robot_closed_loop_scenarios(tmp_path, rig):
 
     # Persona text must load for real (proves profiles/sim/persona.md is a
     # real, usable profile -- not a hand-typed fixture string).
-    assert "SimBot" in load_persona_text("sim")
+    assert "NPC" in load_persona_text("sim")
 
     # Conversation process "boots" before anyone has ever been seen --
     # same ordering the real two-process deployment has (both start at

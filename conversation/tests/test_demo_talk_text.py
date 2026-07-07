@@ -63,14 +63,14 @@ def test_console_speaker_streams_sentences_as_lines(capsys):
     speaker = ConsoleSpeaker()
     speaker.say_stream(iter(["Hi there!", "Nice to see you."]))
     assert capsys.readouterr().out == (
-        "CBot: Hi there!\n"
-        "      Nice to see you.\n"
+        "NPC: Hi there!\n"
+        "     Nice to see you.\n"
     )
 
 
 def test_console_speaker_say_prints_one_line(capsys):
     ConsoleSpeaker().say("Welcome back, Sam!")
-    assert capsys.readouterr().out == "CBot: Welcome back, Sam!\n"
+    assert capsys.readouterr().out == "NPC: Welcome back, Sam!\n"
 
 
 # --- full text-mode conversation through the real pipeline ----------------
@@ -90,8 +90,8 @@ def test_text_mode_full_conversation_via_real_pipeline(profile_root, capsys):
 
     assert pipeline.run_once() is True
     out = capsys.readouterr().out
-    assert "CBot: Hello!" in out
-    assert "      What brings you by?" in out
+    assert "NPC: Hello!" in out
+    assert "     What brings you by?" in out
     # history recorded the exchange like any other transport would
     contents = [m["content"] for m in pipeline._history]
     assert "Hi robot" in contents

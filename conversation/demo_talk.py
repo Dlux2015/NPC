@@ -385,12 +385,12 @@ class ConsoleSpeaker:
     visible in text mode."""
 
     def say(self, text):
-        print("CBot: %s" % text, flush=True)
+        print("NPC: %s" % text, flush=True)
 
     def say_stream(self, sentence_iter):
         first = True
         for sentence in sentence_iter:
-            print(("CBot: " if first else "      ") + sentence, flush=True)
+            print(("NPC: " if first else "     ") + sentence, flush=True)
             first = False
 
 
