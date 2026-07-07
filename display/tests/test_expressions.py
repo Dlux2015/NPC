@@ -107,19 +107,38 @@ def test_full_visit_scenario_transitions():
 
 
 def test_renderer_produces_frames_that_differ_by_expression():
-    pytest.importorskip("cv2")
-    from display.emote import EyesRenderer, PANEL
+    from display.emote import EyeRenderer, PANEL
 
     clock = FakeClock()
-    r = EyesRenderer(clock=clock)
+    r = EyeRenderer(clock=clock)
     # Let the eased parameters settle on each pose before comparing.
-    for _ in range(60):
+    for _ in range(90):
         clock.t += 1 / 30
         idle = r.draw(IDLE)
-    for _ in range(60):
+    for _ in range(90):
         clock.t += 1 / 30
         surprised = r.draw(SURPRISED)
 
-    assert idle.shape == surprised.shape == (PANEL, 2 * PANEL + 24, 3)
+    assert idle.shape == surprised.shape == (PANEL, PANEL, 3)
     assert idle.dtype == np.uint8
     assert np.abs(idle.astype(int) - surprised.astype(int)).mean() > 1.0
+
+
+def test_renderer_is_red_dominant_and_round():
+    """The eye is RED (user direction: robot eye, red core + red halo,
+    not a human eye) and confined to the round panel."""
+    from display.emote import EyeRenderer, PANEL
+
+    clock = FakeClock()
+    r = EyeRenderer(clock=clock)
+    for _ in range(90):
+        clock.t += 1 / 30
+        frame = r.draw(LISTENING)
+
+    b, g, red = (frame[:, :, i].astype(int) for i in range(3))
+    assert red.sum() > 5 * g.sum()      # overwhelmingly red
+    assert red.sum() > 5 * b.sum()
+    assert red.max() > 200              # actually bright
+    # corners are outside the round panel -> dark
+    assert frame[:8, :8].max() == 0
+    assert frame[-8:, -8:].max() == 0
