@@ -159,9 +159,22 @@ up** (false matches) and misses returning faces. Fixes shipped:
 - `run/dev-pc/people.db` purged — pre-alignment embeddings have a
   different score distribution and must not be matched against.
 Also from that run: consent question shortened (users answer WHILE the
-robot talks; the echo-guard drain was eating early answers), and an
-unexplained exit code 5 after a run (not reproduced, no traceback —
-watch for it).
+robot talks; the echo-guard drain was eating early answers).
+
+**Live-verified by the user (5 rounds, 2026-07-06), all green by round
+5:** consent flow (heard "Sure", enrolled), name capture ("my name is
+David" → people.set_name), cross-session recognition (fresh process
+recognized him, skipped consent, greeted by name), multi-conversation
+wake/timeout cycling, clean q exit. Fixes that got it there, in order:
+listen-cue chirp after the echo-guard drain (users can't know when
+listening starts otherwise — two runs lost the "yes" to this),
+min_speech_s 0.2→0.1 for one-word answers, and _BufferedLLM. That last
+one solved the mystery exit code 5 = low byte of 0xC0000005 native
+access violation: llama.cpp's bundled CUDA runtime and torch-CUDA
+(Kokoro) overlapping on one GPU in one process via sentence-streaming.
+Demo now drains LLM generation fully before TTS (<1s at ~110 tok/s).
+Robot proper is immune by design (Piper=CPU, GPU=LLM only) — but this
+is a hard warning for any future GPU-TTS-on-Jetson idea.
 
 ## Consent-gated enrollment (demo_friend, 2026-07-06)
 
