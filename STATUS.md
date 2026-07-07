@@ -39,7 +39,7 @@ for unaligned crops; remaining Phase 6 work = Jetson bench + ambient),
 ## What runs right now (dev PC)
 
 ```
-python -m pytest -q                          # 206 tests
+python -m pytest -q                          # 213 tests
 python sim/demo_full_robot.py                # whole-robot e2e story
 python sim/demo_visual.py                    # interactive virtual world
 python sim/demo_visual.py --camera 0         # webcam: real YuNet tracking
@@ -91,6 +91,25 @@ back loudly to MockLLM (no crash).
 - Shell PATH quirk: `python`/`git`/`curl` aren't on this machine's
   PowerShell PATH — use `C:\Python310\python.exe`, the venv's python,
   or Git Bash (which has git/curl).
+- **TTS engine: Kokoro-82M, voice am_michael (2026-07-06)**, not Piper.
+  `conversation/tts.py`'s `KokoroSynthesizer` wraps the `kokoro` pip
+  package (hexgrad/Kokoro-82M, auto-downloaded from HF on first use into
+  the default HF cache — not repo-local, unlike the LLM GGUF). Bundles
+  its own espeak-ng via `espeakng-loader` — no system install needed.
+  Chosen after a listening comparison against several Piper voices
+  (including en_GB-alan-medium, tried for the JARVIS persona but read as
+  flat/"depressed"): Kokoro sounds materially more natural at a similar
+  (82M) parameter size. Tradeoff: slower than Piper — measured
+  ~1.1-2.2x realtime on this dev PC's CPU-only torch build (torch here
+  has no CUDA; it's a separate install from llama-cpp-python's own
+  bundled CUDA runtime). A CUDA torch build would likely speed this up
+  substantially on the RTX 4090 if per-sentence latency ever becomes
+  noticeable — not done yet, untested whether it's worth the ~2-3GB
+  extra install. `profiles/dev-pc/profile.yaml`: `tts_engine: kokoro` +
+  `tts_voice`/`tts_lang_code`; Piper (en_GB-alan-medium) stays configured
+  as the automatic fallback if `kokoro` isn't installed in whatever
+  interpreter runs the profile (`make_tts_synthesizer` tries Kokoro
+  first, then Piper, then SAPI — loud fallback, never silent).
 - **Live audio input+output verified working end-to-end (2026-07-06)**:
   real mic -> Silero VAD end-pointing -> faster-whisper -> Piper TTS
   playback, through the actual product classes (MicStream/DirectedSTT/

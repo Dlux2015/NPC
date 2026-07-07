@@ -95,6 +95,66 @@ class PiperSynthesizer:
         return self._voice.config.sample_rate
 
 
+KOKORO_SAMPLE_RATE = 24000
+
+
+def _import_kokoro():
+    try:
+        from kokoro import KPipeline
+    except ImportError as exc:
+        raise RuntimeError(
+            "Speaker requires the 'kokoro' package for KokoroSynthesizer "
+            "(pip install kokoro soundfile). It bundles its own espeak-ng "
+            "phonemizer binaries (espeakng-loader) -- no system install "
+            "needed. Or inject a fake synthesizer (must implement "
+            "synthesize(text) -> int16 array) for tests/sim."
+        ) from exc
+    return KPipeline
+
+
+class KokoroSynthesizer:
+    """Lazy-loaded Kokoro-82M wrapper (hexgrad/Kokoro-82M via the `kokoro`
+    package, auto-downloaded from Hugging Face on first use).
+    synthesize(text) -> 1-D int16 numpy array at self.sample_rate (24kHz)
+    -- the same interface PiperSynthesizer implements, so Speaker doesn't
+    care which is injected.
+
+    Chosen (2026-07-06, listening comparison) for noticeably more natural
+    prosody than Piper's low/medium voices, at a similar (82M parameter)
+    model size. Tradeoff: slower synthesis -- measured ~1.1-2.2x realtime
+    on this dev PC's CPU-only torch build (the `torch` package used for
+    Silero VAD has no CUDA support here; llama-cpp-python's own bundled
+    CUDA runtime is independent of it). A CUDA-enabled torch build would
+    likely speed this up substantially on a discrete GPU -- worth
+    revisiting if per-sentence latency becomes noticeable in practice.
+
+    lang_code selects phonemizer/prosody rules ("a"=American English,
+    "b"=British English -- see the kokoro package for the full list);
+    voice selects the speaker embedding (e.g. "am_michael", "af_heart",
+    "bm_george"). Keep them paired to the voice's own prefix (af_/am_ ->
+    "a", bf_/bm_ -> "b") -- mismatching still runs, but sounds off.
+    """
+
+    def __init__(self, voice="am_michael", lang_code="a"):
+        KPipeline = _import_kokoro()
+        self.voice = voice
+        self.lang_code = lang_code
+        self.sample_rate = KOKORO_SAMPLE_RATE
+        self._pipeline = KPipeline(lang_code=lang_code)
+
+    def synthesize(self, text):
+        import numpy as np
+        chunks = [
+            result.audio.numpy()
+            for result in self._pipeline(text, voice=self.voice)
+            if result.audio is not None
+        ]
+        if not chunks:
+            return np.zeros(0, dtype="int16")
+        audio = np.concatenate(chunks)
+        return np.clip(audio * 32767.0, -32768, 32767).astype("int16")
+
+
 class Speaker:
     def __init__(self, profile, state, synthesizer=None, sink=None,
                  audio_config=None):

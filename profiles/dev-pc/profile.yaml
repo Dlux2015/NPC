@@ -15,18 +15,28 @@ serial_transport: none    # no ESP32 on this profile -- audio/LLM bench only
 camera_source: none       # no camera on this profile -- audio/LLM bench only
 audio_device: default     # OS-default input/output; see audio.json below
 
-# Piper voice for conversation/demo_talk.py, path relative to this profile
-# directory (resolved by demo_talk.py, not by conversation/tts.py directly).
-# Downloaded via `python -m piper.download_voices en_GB-alan-medium` --
-# version-pinned by committing the exact .onnx + .onnx.json pair; re-run
-# the same download_voices command to reproduce it byte-for-byte.
-# 2026-07-06: switched from en_US-ryan-high to this British RP male voice
-# to pair with the JARVIS-style persona.md below -- closest free Piper
-# voice to that "calm AI butler" register (no en_GB high-tier male voice
-# exists yet, so this is medium-tier; the accent match mattered more here
-# than raw fidelity). en_US-ryan-high/en_US-amy-low stay in voices/ as
-# other tried options -- swap this key back to either with zero code
-# changes if the accent doesn't land well in practice.
+# TTS engine (conversation/demo_talk.py's make_tts_synthesizer):
+# 2026-07-06 -- switched from Piper to Kokoro-82M (hexgrad/Kokoro-82M,
+# via the `kokoro` pip package) after a listening comparison against
+# several Piper voices (including the British en_GB-alan-medium tried
+# for the JARVIS persona below, which read as flat/"depressed"). Kokoro
+# sounds noticeably more natural at a similar (82M) parameter count.
+# Tradeoff: slower synthesis than Piper -- ~1.1-2.2x realtime measured on
+# this dev PC's CPU-only torch build (see conversation/tts.py's
+# KokoroSynthesizer docstring); a CUDA torch build would likely speed
+# this up substantially on this PC's discrete GPU if latency ever
+# becomes noticeable in practice.
+tts_engine: kokoro
+tts_voice: am_michael   # American English male; "a"/"b" = lang_code below
+tts_lang_code: a
+
+# Piper stays configured as the automatic fallback (make_tts_synthesizer
+# tries Kokoro first, then this) if the `kokoro` package isn't installed
+# in whatever interpreter runs this profile. Downloaded via
+# `python -m piper.download_voices en_GB-alan-medium` -- version-pinned
+# by committing the exact .onnx + .onnx.json pair; re-run the same
+# download_voices command to reproduce it byte-for-byte. en_US-ryan-high/
+# en_US-amy-low also stay in voices/ as other previously-tried options.
 # NOT wired up for bench-naked/printed-shell profiles -- those get their
 # own pinned voice choice per SS3.3 when Phase 2.5/4 happens for real.
 tts_model_path: voices/en_GB-alan-medium.onnx

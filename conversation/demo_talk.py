@@ -136,10 +136,21 @@ def print_devices(audio_config):
 # --- TTS backend selection ---------------------------------------------------
 
 def make_tts_synthesizer(profile_yaml):
-    """Try Piper first (profile.yaml's tts_model_path, if configured and
-    present on disk); else fall back to the dev-PC-only SAPI synthesizer.
-    Returns (synthesizer, backend_description) -- caller prints the
-    description loudly, never silently."""
+    """Try Kokoro first if profile.yaml sets tts_engine: kokoro; else
+    Piper (tts_model_path, if configured and present on disk); else fall
+    back to the dev-PC-only SAPI synthesizer. Returns (synthesizer,
+    backend_description) -- caller prints the description loudly, never
+    silently."""
+    if profile_yaml.get("tts_engine") == "kokoro":
+        try:
+            from conversation.tts import KokoroSynthesizer
+            voice = profile_yaml.get("tts_voice", "af_heart")
+            lang_code = profile_yaml.get("tts_lang_code", "a")
+            synth = KokoroSynthesizer(voice=voice, lang_code=lang_code)
+            return synth, "Kokoro-82M (voice=%s)" % voice
+        except RuntimeError as exc:
+            print("Kokoro unavailable (%s) -- falling back to Piper/SAPI." % exc)
+
     model_path = profile_yaml.get("tts_model_path")
     if model_path:
         if not os.path.isabs(model_path):

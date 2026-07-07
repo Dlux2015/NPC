@@ -3,12 +3,14 @@ sentence-streaming, and NullAudioSink -- no piper-tts/sounddevice
 installed required.
 """
 import os
+import sys
+import types
 import wave
 
 import numpy as np
 import pytest
 
-from conversation.tts import NullAudioSink, Speaker, split_sentences
+from conversation.tts import KokoroSynthesizer, NullAudioSink, Speaker, split_sentences
 from conversation.tests._audio_fakes import FakeSynthesizer
 from shared.ipc import SharedState
 
@@ -145,3 +147,108 @@ def test_split_sentences():
     ]
     assert split_sentences("   ") == []
     assert split_sentences("No terminal punctuation") == ["No terminal punctuation"]
+
+
+# --- KokoroSynthesizer (kokoro faked -- no real model download) -----------
+
+class _FakeAudioTensor:
+    """Stand-in for the torch.FloatTensor KPipeline.Result.audio returns:
+    only .numpy() is ever called on it."""
+
+    def __init__(self, array):
+        self._array = array
+
+    def numpy(self):
+        return self._array
+
+
+class _FakeResult:
+    def __init__(self, audio):
+        self.audio = audio
+
+
+class _FakeKPipeline:
+    """Stand-in for kokoro.KPipeline: records construction args and the
+    (text, voice) it was called with; yields one fixed-length float32
+    "audio" chunk per call, like the real generator does."""
+
+    last_instance = None
+
+    def __init__(self, lang_code, **kwargs):
+        self.lang_code = lang_code
+        self.kwargs = kwargs
+        self.calls = []
+        _FakeKPipeline.last_instance = self
+
+    def __call__(self, text, voice=None, **kwargs):
+        self.calls.append((text, voice))
+        audio = np.full(240, 0.5, dtype=np.float32)  # 10ms @ 24kHz, mid-scale
+        yield _FakeResult(_FakeAudioTensor(audio))
+
+
+@pytest.fixture
+def fake_kokoro_module(monkeypatch):
+    module = types.ModuleType("kokoro")
+    module.KPipeline = _FakeKPipeline
+    monkeypatch.setitem(sys.modules, "kokoro", module)
+    return module
+
+
+def test_kokoro_missing_package_gives_clear_error(monkeypatch):
+    monkeypatch.setitem(sys.modules, "kokoro", None)
+    with pytest.raises(RuntimeError, match="kokoro"):
+        KokoroSynthesizer()
+
+
+def test_kokoro_constructs_pipeline_with_lang_code(fake_kokoro_module):
+    synth = KokoroSynthesizer(voice="bm_george", lang_code="b")
+    assert synth.sample_rate == 24000
+    assert _FakeKPipeline.last_instance.lang_code == "b"
+
+
+def test_kokoro_synthesize_calls_pipeline_with_text_and_voice(fake_kokoro_module):
+    synth = KokoroSynthesizer(voice="am_michael", lang_code="a")
+    synth.synthesize("Good news, sir.")
+    assert _FakeKPipeline.last_instance.calls == [("Good news, sir.", "am_michael")]
+
+
+def test_kokoro_synthesize_returns_int16_scaled_from_float(fake_kokoro_module):
+    synth = KokoroSynthesizer()
+    samples = synth.synthesize("hello")
+    assert samples.dtype == np.int16
+    # fake audio is a constant 0.5 -> scaled to ~16383
+    assert samples[0] == int(0.5 * 32767)
+
+
+def test_kokoro_synthesize_empty_result_is_empty_int16_array(fake_kokoro_module):
+    class _EmptyPipeline(_FakeKPipeline):
+        def __call__(self, text, voice=None, **kwargs):
+            return iter([])  # no results at all
+
+    module = sys.modules["kokoro"]
+    module.KPipeline = _EmptyPipeline
+    synth = KokoroSynthesizer()
+    samples = synth.synthesize("hello")
+    assert len(samples) == 0
+    assert samples.dtype == np.int16
+
+
+# --- make_tts_synthesizer engine selection (demo_talk.py) -------------------
+
+def test_make_tts_synthesizer_prefers_kokoro_when_configured(fake_kokoro_module):
+    from conversation.demo_talk import make_tts_synthesizer
+    profile_yaml = {"tts_engine": "kokoro", "tts_voice": "am_michael",
+                     "tts_lang_code": "a"}
+    synth, backend = make_tts_synthesizer(profile_yaml)
+    assert isinstance(synth, KokoroSynthesizer)
+    assert "Kokoro" in backend
+    assert "am_michael" in backend
+
+
+def test_make_tts_synthesizer_falls_back_when_kokoro_not_installed(monkeypatch, capsys):
+    from conversation.demo_talk import make_tts_synthesizer
+    monkeypatch.setitem(sys.modules, "kokoro", None)
+    profile_yaml = {"tts_engine": "kokoro"}  # no piper/tts_model_path either
+    synth, backend = make_tts_synthesizer(profile_yaml)
+    assert "SAPI" in backend
+    assert "Kokoro unavailable" in capsys.readouterr().out
