@@ -27,6 +27,7 @@ Hard rules enforced here (ORCHESTRATION.md SS3.1 / skills/vision-face-tracking):
 """
 import argparse
 import json
+import logging
 import os
 import sys
 import threading
@@ -37,6 +38,8 @@ from vision.camera import open_camera
 from vision.paths import profile_dir, load_profile_yaml
 from vision.pid import PID
 from vision.transport import open_transport
+
+logger = logging.getLogger(__name__)
 
 # Retuned during the F2 integration fix (sim/scenarios/test_product_loop.py):
 # this loop recomputes an ABSOLUTE target every tick from the instantaneous
@@ -359,7 +362,13 @@ class TrackingApp:
         self._recognition_wake.set()
 
     def _recognition_worker(self):
-        """Background worker thread (F5): owns all people.py access."""
+        """Background worker thread (F5): owns all people.py access.
+
+        Survivability rule: one bad crop/embedding/db hiccup must cost
+        exactly one recognition tick, never the thread -- an uncaught
+        exception here would otherwise kill recognition SILENTLY for the
+        rest of the process lifetime (tracking keeps running, the robot
+        just stops knowing anyone). Log loudly, keep serving."""
         while not self._recognition_stop.is_set():
             self._recognition_wake.wait()
             self._recognition_wake.clear()
@@ -371,6 +380,9 @@ class TrackingApp:
             try:
                 if crop is not None:
                     self._run_recognition(crop)
+            except Exception:
+                logger.exception(
+                    "recognition tick failed (crop dropped, worker alive)")
             finally:
                 self._recognition_busy.clear()
 

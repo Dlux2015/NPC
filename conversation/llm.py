@@ -32,6 +32,16 @@ EXPECTED_MODEL_DESC = (
 
 N_CTX = 2048  # hard cap per ORCHESTRATION.md §3.4 / skill
 
+# Responsiveness guard: hard ceiling on tokens per reply. The persona
+# contract is 1-3 short sentences (~<80 tokens); without an explicit cap
+# a derailed generation can run on for many seconds, freezing the whole
+# conversation turn (and, on the robot, holding the GPU the entire
+# time). 220 leaves comfortable headroom over any legitimate reply and
+# bounds the runaway worst case to ~7.5s on the Orin's ~29 tok/s
+# (~2s on the dev PC) instead of "until the context fills". Normal
+# replies never come near it; tune down if field replies never do.
+MAX_REPLY_TOKENS = 220
+
 
 def _repo_root():
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -109,11 +119,12 @@ class LocalLLM:
             model_path=self.model_path, n_ctx=self.n_ctx, **llama_kwargs
         )
 
-    def generate_stream(self, messages):
+    def generate_stream(self, messages, max_tokens=MAX_REPLY_TOKENS):
         """messages: list[{"role": ..., "content": ...}] (system/user/
-        assistant, OpenAI-style). Yields text chunks as they're produced."""
+        assistant, OpenAI-style). Yields text chunks as they're produced.
+        max_tokens bounds a runaway generation (see MAX_REPLY_TOKENS)."""
         stream = self._llama.create_chat_completion(
-            messages=messages, stream=True
+            messages=messages, stream=True, max_tokens=max_tokens
         )
         for chunk in stream:
             choice = chunk.get("choices", [{}])[0]

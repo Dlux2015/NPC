@@ -84,30 +84,15 @@ EMBED_DIM = 128
 
 
 def _flush_writer_with_retry(writer, attempts=8, delay_s=0.005):
-    """Retry wrapper around ThreadedStateWriter.flush(), for a THIRD
-    finding: shared/ipc.py's SharedState._write() does
-    `os.replace(tmp, self.path)` with the comment "atomic on POSIX and
-    Windows" -- true for a single writer, but this whole-robot scenario is
-    the first thing to genuinely exercise SS4.2's promise of one real
-    state.json shared by two independent writers/readers (here: rig's own
-    ThreadedStateWriter background thread, still running, plus this test's
-    own flush() calls and the pipeline-side RecordingState's updates, all
-    targeting the same path). Under that real concurrency, Windows'
-    os.replace() intermittently raises `PermissionError: [WinError 5]
-    Access is denied` when another handle has the destination briefly open
-    at the exact instant of replace (a real MoveFileEx sharing-violation,
-    not a sim artifact -- reproduced directly against shared/ipc.py, no
-    sim code involved). This is a genuine, pre-existing product gap
-    (SharedState has no writer-side retry/backoff, and ThreadedStateWriter
-    doesn't synchronize flush() against its own live background thread),
-    reported rather than silently patched in shared/ipc.py. This helper
-    only shields THIS test's own explicit flush() call sites; it cannot
-    shield the identical race if it occurs inside product code's own
-    state.update() calls (e.g. conversation/pipeline.py's
-    conversation_active toggles) -- those would need the real fix
-    upstream (retry-on-PermissionError inside SharedState._write(), or
-    opening the destination with Windows sharing flags that tolerate a
-    concurrent reader across the replace)."""
+    """Retry wrapper around ThreadedStateWriter.flush() for Windows'
+    os.replace() sharing-violation race (PermissionError when another
+    handle briefly holds the destination at the instant of replace).
+    HISTORY: this scenario is what originally surfaced the race as a
+    product gap; SharedState._write() has since gained its own
+    retry-with-backoff (50 x 2ms -- see shared/ipc.py), so product code
+    is covered upstream. This wrapper remains as belt-and-braces for the
+    test's own tight flush() loops, which hammer the file far harder
+    than the coalesced <=10Hz production write cadence ever does."""
     import time
     for attempt in range(attempts):
         try:

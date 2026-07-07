@@ -21,6 +21,7 @@ PeopleStore (or anything with the same match/get/set_name surface).
 """
 import logging
 import re
+import time
 
 from conversation.persona import (
     build_ambient_context,
@@ -299,12 +300,29 @@ class ConversationPipeline:
             self.state.update(conversation_active=False)
         return True
 
-    def run_forever(self):
+    def run_forever(self, error_backoff_s=1.0, sleep_fn=time.sleep):
         """Loop run_once() until stop() is called. Cleanly checks a stop
         flag between conversations (and between wake.wait() polls, since
-        wake.wait(timeout_s) is expected to return None periodically)."""
+        wake.wait(timeout_s) is expected to return None periodically).
+
+        Survivability rule (mirrors the recognition worker's): one failed
+        turn -- a TTS device hiccup, an LLM error, a transient audio
+        exception -- must cost that turn, never the process. Without
+        this, any single uncaught exception ends conversation for the
+        rest of the robot's uptime while tracking keeps running, which
+        is the worst failure mode (a robot that looks at you and says
+        nothing). Exceptions are logged loudly with a short backoff so a
+        genuinely persistent fault (mic unplugged) throttles into a
+        readable log stream instead of a tight crash loop; run_once()'s
+        own finally already guarantees conversation_active is cleared."""
         while not self._stop:
-            self.run_once()
+            try:
+                self.run_once()
+            except Exception:
+                logger.exception(
+                    "conversation turn failed (recovering; next wake "
+                    "will start fresh)")
+                sleep_fn(error_backoff_s)
 
     def stop(self):
         """Request run_forever() to exit after the current run_once()

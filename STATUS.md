@@ -1,7 +1,9 @@
 # CBot — session handoff / status
 
 Last updated: 2026-07-06 (v1.1 spec era). Read this + `ORCHESTRATION.md`
-(plan of record) before resuming work. Spec: `unzipped/robot_build_spec.md`;
+(plan of record) before resuming work. **Full system reference
+(architecture, capability envelope, responsiveness/survivability
+guarantees): `docs/SYSTEM.md`.** Spec: `unzipped/robot_build_spec.md`;
 BOM: `unzipped/robot_bom_tracker_v2.html`; power detail:
 `hardware/power_system.md`.
 

@@ -183,6 +183,52 @@ def test_step_never_writes_ipc_directly_writer_owns_the_disk_call(tmp_path):
         app.close()
 
 
+def test_recognition_worker_survives_a_failing_embedder(tmp_path):
+    """Survivability: one exception in the recognition path costs one
+    tick, never the worker thread -- a dead worker would silently end
+    recognition for the process lifetime while tracking keeps running."""
+    bbox = (250, 150, 150, 150, 0.9)
+    state = ipc.SharedState(str(tmp_path / "state.json"))
+
+    calls = {"n": 0}
+
+    def flaky_embed(crop):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("transient cv2 failure")
+        return np.ones(4, dtype=np.float32)
+
+    class RecordingStore:
+        def __init__(self):
+            self.matches = []
+
+        def match(self, embedding, threshold=None):
+            self.matches.append(embedding)
+            return (5, None, 0.9)
+
+        def enroll(self, embedding):
+            raise AssertionError("match always hits in this test")
+
+    store = RecordingStore()
+    box, clock = _clock_box(0.0)
+    app = TrackingApp(FakeCamera(), SyntheticDetector(lambda f: [bbox]),
+                       FakeTransport(), state, _calibration(), clock=clock,
+                       face_crop_cb=lambda f, t: f, people_store=store,
+                       embed_cb=flaky_embed, recognition_interval_s=1.0)
+    try:
+        app.step()                      # tick 1: embedder raises
+        app._wait_recognition_idle()
+        assert store.matches == []      # that tick was dropped...
+        assert app._recognition_thread.is_alive()  # ...but the worker lives
+
+        box[0] = 1.1
+        app.step()                      # tick 2: works normally again
+        app._wait_recognition_idle()
+        assert len(store.matches) == 1
+    finally:
+        app.close()
+
+
 def test_run_forever_relaxes_detection_rate_when_alone(tmp_path, monkeypatch):
     """Power: after idle_after_s with nobody in frame, the frame loop
     paces at idle_hz instead of target_hz -- and snaps back to full rate

@@ -108,10 +108,12 @@ class _FakeLlama:
         self.n_ctx = n_ctx
         self.kwargs = kwargs
         self.chat_calls = []
+        self.chat_kwargs = []
         _FakeLlama.last_instance = self
 
-    def create_chat_completion(self, messages, stream=True):
+    def create_chat_completion(self, messages, stream=True, **kwargs):
         self.chat_calls.append(messages)
+        self.chat_kwargs.append(kwargs)
         for word in ["Hi", " there", "."]:
             yield {"choices": [{"delta": {"content": word}}]}
         yield {"choices": [{"delta": {}}]}  # trailing empty delta, like real streams
@@ -164,6 +166,23 @@ def test_local_llm_generate_stream_yields_text_chunks(
     llm = LocalLLM(profile={}, model_path=str(model_file))
     chunks = list(llm.generate_stream([{"role": "user", "content": "hi"}]))
     assert "".join(chunks) == "Hi there."
+
+
+def test_local_llm_bounds_reply_length_with_max_tokens(
+    tmp_path, fake_llama_cpp_module
+):
+    """Responsiveness guard: every generation must carry an explicit
+    max_tokens ceiling (MAX_REPLY_TOKENS) so a runaway reply can't
+    freeze the conversation turn indefinitely."""
+    from conversation.llm import MAX_REPLY_TOKENS
+
+    model_file = tmp_path / "model.gguf"
+    model_file.write_bytes(b"stub")
+    llm = LocalLLM(profile={}, model_path=str(model_file))
+    list(llm.generate_stream([{"role": "user", "content": "hi"}]))
+    assert _FakeLlama.last_instance.chat_kwargs == [
+        {"max_tokens": MAX_REPLY_TOKENS}
+    ]
 
 
 def test_make_llm_uses_local_llm_when_model_file_present(

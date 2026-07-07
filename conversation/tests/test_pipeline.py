@@ -36,6 +36,37 @@ def make_pipeline(
     return pipeline, wake, stt, speaker, llm
 
 
+# --- run_forever survivability ---------------------------------------------
+
+def test_run_forever_survives_a_failing_turn(profile_root):
+    """One failed turn (TTS device hiccup, LLM error) must cost that
+    turn, never the loop -- and back off briefly instead of spinning."""
+    state = FakeState(person_present=True, person_id=1, new_person_seq=0)
+    pipeline, wake, stt, speaker, llm = make_pipeline(
+        profile_root, state, stt_script=["hi", "hi again"],
+        wake_script=("wakeword", "wakeword"),
+    )
+
+    turns = {"n": 0}
+    real_run_once = pipeline.run_once
+
+    def flaky_run_once():
+        turns["n"] += 1
+        if turns["n"] == 1:
+            raise RuntimeError("speaker device vanished")
+        if turns["n"] >= 3:
+            pipeline.stop()
+            return False
+        return real_run_once()
+
+    pipeline.run_once = flaky_run_once
+    backoffs = []
+    pipeline.run_forever(error_backoff_s=0.5, sleep_fn=backoffs.append)
+
+    assert turns["n"] >= 3          # kept looping after the failure
+    assert backoffs == [0.5]        # backed off exactly once, for the error
+
+
 # --- sentence splitter ---------------------------------------------------
 
 def test_split_sentences_splits_on_terminal_punctuation_across_chunks():
