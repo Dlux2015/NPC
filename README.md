@@ -14,6 +14,41 @@ Licensed under the [GNU GPLv3](LICENSE).
 - **Plan of record:** `ORCHESTRATION.md`
 - **Build spec:** `unzipped/robot_build_spec.md` · **BOM:** `unzipped/robot_bom_tracker_v2.html`
 
+## Build stages
+
+The conversation/LLM stack — **the brain** — is prioritized first: it
+needs no hardware and nothing else blocks on it. Full phase list +
+dependency notes: `ORCHESTRATION.md` §5.
+
+```mermaid
+flowchart LR
+    P0(["0 · Scaffold"])
+    P1["1 · Conversation bench\n— the brain, priority —"]
+    P1_5["1.5 · Sim rig"]
+    P2["2 · Firmware bench"]
+    P2_5["2.5 · Vision standalone"]
+    P3["3 · Calibration"]
+    P3_5["3.5 · Closed loop"]
+    P4["4 · Full integration"]
+    P5["5 · Recognition + ambient"]
+    P6(["6 · Shell-swap drill"])
+
+    P0 --> P1
+    P0 --> P1_5
+    P0 --> P2
+    P0 --> P2_5
+    P2 --> P3
+    P2_5 --> P3
+    P3 --> P3_5
+    P1_5 -. sim-first .-> P3_5
+    P1 --> P4
+    P3_5 --> P4
+    P4 --> P5
+    P5 --> P6
+
+    style P1 fill:#ff5a2a,color:#fff,stroke:#ffb27a,stroke-width:2px
+```
+
 ## Layout
 ```
 firmware/       ESP32-S3 MicroPython (easing.py is pure-Python, sim imports it)

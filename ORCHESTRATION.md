@@ -1,4 +1,4 @@
-# CBot Orchestration — Claude Code + Fable 5
+# NPC (Nomadic. Personal. Companion.) Orchestration — Claude Code + Fable 5
 
 Builds the robot in `unzipped/robot_build_spec.md` (BOM:
 `unzipped/robot_bom_tracker_v2.html`). Plan of record; nothing built yet.
@@ -154,22 +154,32 @@ access, clearance for full pan/tilt range.
 
 ## 5. Phases
 
+Renumbered (2026-07-18) to put the brain first: conversation/LLM has no
+hardware dependency and nothing downstream blocks on it, so it leads the
+plan instead of sitting at old-Phase-4. Diagram: `README.md`.
+
 | Phase | Agents | Done when |
 |---|---|---|
 | 0 Scaffold | orchestrator | Repo tree (spec layout + `/profiles` + `/sim`), agents, skills, §4 stubs |
-| 0.5 Sim rig | sim + reviewer | Closed-loop tracking of a scripted face entirely in sim; scenario suite green |
-| 1 Firmware bench | firmware | Smooth motion from serial angles; limits + idle scan verified (servo rail power); rail current draw measured incl. stall (spec v1.1 power section) |
-| 2 Vision standalone | vision | Detection printing offsets ≥30fps, no servos |
-| 2.5 Calibration | vision + reviewer | Full §3.5 on real hardware; profile committed |
-| 3 Closed loop | vision + firmware + reviewer | Smooth tracking, no oscillation, PID on measured calibration |
-| 4 Conversation bench | speech + llm | Wake→STT→LLM→TTS standalone, latency OK |
-| 5 Full integration | all + reviewer | Concurrent processes; no tracking stutter during inference; fits 8GB (tegrastats) |
-| 6 Recognition + ambient | vision + llm + speech | Greets returning person; auto-enrolls new face; ambient context informs a reply |
-| 7 Shell-swap drill | user + docs-scribe | §4.5 on a real printed shell, zero code edits |
+| **1 Conversation bench (the brain)** | speech + llm | Wake→STT→LLM→TTS standalone, latency OK |
+| 1.5 Sim rig | sim + reviewer | Closed-loop tracking of a scripted face entirely in sim; scenario suite green |
+| 2 Firmware bench | firmware | Smooth motion from serial angles; limits + idle scan verified (servo rail power); rail current draw measured incl. stall (spec v1.1 power section) |
+| 2.5 Vision standalone | vision | Detection printing offsets ≥30fps, no servos |
+| 3 Calibration | vision + reviewer | Full §3.5 on real hardware; profile committed |
+| 3.5 Closed loop | vision + firmware + reviewer | Smooth tracking, no oscillation, PID on measured calibration |
+| 4 Full integration | all + reviewer | Concurrent processes; no tracking stutter during inference; fits 8GB (tegrastats) |
+| 5 Recognition + ambient | vision + llm + speech | Greets returning person; auto-enrolls new face; ambient context informs a reply |
+| 6 Shell-swap drill | user + docs-scribe | §4.5 on a real printed shell, zero code edits |
 
-0.5 ∥ 1 ∥ 2 after 0; 4 anytime after 0; 2.5 needs 1+2, user at bench.
+1 anytime after 0 (start here — no hardware needed); 1.5 ∥ 2 ∥ 2.5 also
+after 0; 3 needs 2+2.5, user at bench.
 **Sim-first:** every feature passes its sim scenario before touching
 hardware.
+
+> Note: comments in `vision/`, `sim/`, tests, and `hardware/*.md` still
+> cite the pre-2026-07-18 numbering (e.g. "Phase 6" for recognition, now
+> Phase 5) — this table is the source of truth; those references weren't
+> bulk-updated as part of this pass.
 
 ## 6. Agreements + ops
 
@@ -194,4 +204,5 @@ hardware.
 1. `git init`; commit spec, BOM, this plan.
 2. Create agents (§2) + skills (§3).
 3. Scaffold tree + `/profiles` + `/sim`; stub the §4 contract modules.
-4. Kick off Phases 0.5, 1, 2 in parallel.
+4. Kick off Phase 1 (the brain) first; 1.5/2/2.5 (sim, firmware, vision)
+   in parallel behind it.
