@@ -1,4 +1,4 @@
-# CBot / NPC — System Reference
+# NPC (Nomadic. Personal. Companion.) — System Reference
 
 Top-to-bottom documentation of what the system is, how the pieces fit,
 what the hardware can and cannot do, and the guarantees that keep the
@@ -15,6 +15,7 @@ after the full software stack was live-verified on the dev PC.
 | `hardware/budget_analysis.md` | Power + RAM sufficiency numbers for the robot build. |
 | `hardware/power_system.md` | DeWalt battery rework rationale + shopping list. |
 | `hardware/emote_display.md` | The eye: hardware proposal + implemented software v1. |
+| `hardware/chassis_design.md` | Chassis material + base/neck/head structural split, weight/torque budget. |
 
 ---
 
@@ -331,7 +332,7 @@ Dev PC (all commands from repo root; venv interpreter mandatory for
 real LLM/TTS/VAD):
 
 ```
-A:\code\CBot\.venv\Scripts\python.exe -m pytest -q          # the suite
+A:\code\NPC\.venv\Scripts\python.exe -m pytest -q          # the suite
 ...python.exe -m conversation.demo_friend                    # the full experience
 ...python.exe -m display.emote                               # the eye (2nd window)
 ...python.exe -m conversation.demo_talk --text               # typed chat

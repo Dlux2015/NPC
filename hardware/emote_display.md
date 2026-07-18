@@ -1,5 +1,10 @@
 # Emote display — round LCD "eyes" proposal
 
+**See `hardware/chassis_design.md` §2 (2026-07-18) for the settled
+head/base split** — the Jetson lives in the head alongside these
+displays, so the ribbon routing described below is fully internal, not
+a cable flexing across the pan/tilt joint as originally written here.
+
 **Status: PROPOSAL (2026-07-06); software v1 IMPLEMENTED same day** —
 `display/expressions.py` (state machine) + `display/emote.py` (window
 renderer, two virtual GC9A01s) + `display/tests/`. Run
