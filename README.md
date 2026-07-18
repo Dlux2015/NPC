@@ -1,9 +1,12 @@
-# CBot — convention face-tracking robot
+# NPC — Nomadic. Personal. Companion.
 
-Pan/tilt robot head: tracks + recognizes people (OpenCV, Jetson Orin Nano
-Super 8GB), converses via fully local LLM (llama.cpp, Llama-3.2-3B), servo
-motion smoothed on an ESP32-S3 (MicroPython). Swappable 3D-printed shells
-via per-shell calibration profiles. Full digital twin in `/sim`.
+A convention face-tracking robot. Pan/tilt robot head: tracks + recognizes
+people (OpenCV, Jetson Orin Nano Super 8GB), converses via fully local LLM
+(llama.cpp, Llama-3.2-3B), servo motion smoothed on an ESP32-S3
+(MicroPython). Swappable 3D-printed shells via per-shell calibration
+profiles. Full digital twin in `/sim`.
+
+Licensed under the [GNU GPLv3](LICENSE).
 
 - **Plan of record:** `ORCHESTRATION.md`
 - **Build spec:** `unzipped/robot_build_spec.md` · **BOM:** `unzipped/robot_bom_tracker_v2.html`
