@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NPC — the eye</title>
+<meta name="description" content="NPC — Nomadic. Personal. Companion. A convention face-tracking robot. This is its eye, rendered live in your browser.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='16' fill='%23050505'/%3E%3Ccircle cx='16' cy='16' r='9' fill='%23ff5a2a'/%3E%3Ccircle cx='16' cy='16' r='4' fill='%23fff3e6'/%3E%3C/svg%3E">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: radial-gradient(ellipse at 50% 40%, #101014 0%, #07070a 60%, #030304 100%);
+    color: #d8d6d2;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    overflow-x: hidden;
+  }
+  main {
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: clamp(20px, 4vw, 36px);
+    padding: 8vh 6vw 6vh;
+    text-align: center;
+  }
+  .stage {
+    position: relative;
+    width: min(70vw, 420px);
+    aspect-ratio: 1 / 1;
+    touch-action: none;
+  }
+  .stage::after {
+    content: "";
+    position: absolute;
+    inset: -18%;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,80,30,0.10), transparent 70%);
+    pointer-events: none;
+    filter: blur(2px);
+  }
+  canvas {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: block;
+    border-radius: 50%;
+    background: #050505;
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.05),
+      0 0 40px rgba(255,60,20,0.12),
+      inset 0 0 30px rgba(0,0,0,0.6);
+  }
+  h1 {
+    margin: 0;
+    font-size: clamp(1.6rem, 3.4vw, 2.4rem);
+    font-weight: 650;
+    letter-spacing: 0.01em;
+    color: #f2efe9;
+  }
+  h1 span {
+    display: block;
+    margin-top: 0.35em;
+    font-size: 0.42em;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #ff8a52;
+  }
+  p.tag {
+    max-width: 42ch;
+    margin: 0;
+    color: #96938d;
+    font-size: 0.95rem;
+    line-height: 1.5;
+  }
+  .hint {
+    font-size: 0.8rem;
+    color: #5f5d59;
+    letter-spacing: 0.02em;
+  }
+  a.repo {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5em;
+    margin-top: 4px;
+    padding: 0.55em 1.1em;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.14);
+    color: #e8e6e1;
+    text-decoration: none;
+    font-size: 0.85rem;
+    transition: border-color 0.2s ease, background 0.2s ease;
+  }
+  a.repo:hover {
+    border-color: rgba(255,138,82,0.6);
+    background: rgba(255,90,42,0.08);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .stage::after { display: none; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>NPC<span>Nomadic&nbsp;·&nbsp;Personal&nbsp;·&nbsp;Companion</span></h1>
+  <div class="stage">
+    <canvas id="eye" width="240" height="240" aria-label="An animated robot eye that follows your cursor"></canvas>
+  </div>
+  <p class="tag">
+    A convention face-tracking robot. This eye is the same renderer
+    that runs on its actual round display — ported to your browser.
+  </p>
+  <p class="hint">move your cursor · tap on mobile</p>
+  <a class="repo" href="https://github.com/Dlux2015/NPC">View the repo on GitHub &rarr;</a>
+</main>
+
+<script>
+(() => {
+  "use strict";
+  const canvas = document.getElementById("eye");
+  const ctx = canvas.getContext("2d");
+  const PANEL = 240;
+  const CENTER = PANEL / 2;
+
+  // Poses ported from display/emote.py _EXPRESSION_POSE:
+  // [brightness, core_r, halo_r, wander_r]
+  const IDLE = { brightness: 0.35, core: 16, halo: 68, wander: 42 };
+  const ALERT = { brightness: 0.85, core: 22, halo: 84, wander: 12 };
+  const SURPRISED = { brightness: 1.0, core: 12, halo: 108, wander: 0 };
+
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  canvas.width = PANEL * dpr;
+  canvas.height = PANEL * dpr;
+  ctx.scale(dpr, dpr);
+
+  let pointer = null;        // {x, y} in panel-local logical coords, or null
+  let lastMoveT = 0;
+  let surprisedUntil = 0;
+
+  let brightness = IDLE.brightness, coreR = IDLE.core, haloR = IDLE.halo;
+  let look = { x: 0, y: 0 };
+  let lookTarget = { x: 0, y: 0 };
+  let nextWander = 0;
+  let lastT = performance.now();
+
+  function localPoint(clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
+    const x = ((clientX - rect.left) / rect.width) * PANEL - CENTER;
+    const y = ((clientY - rect.top) / rect.height) * PANEL - CENTER;
+    return { x, y };
+  }
+
+  function onMove(clientX, clientY) {
+    pointer = localPoint(clientX, clientY);
+    lastMoveT = performance.now();
+  }
+
+  window.addEventListener("mousemove", (e) => onMove(e.clientX, e.clientY), { passive: true });
+  window.addEventListener("mouseleave", () => { pointer = null; }, { passive: true });
+  window.addEventListener("touchmove", (e) => {
+    if (e.touches.length) onMove(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive: true });
+  window.addEventListener("touchend", () => { pointer = null; }, { passive: true });
+  canvas.addEventListener("click", () => { surprisedUntil = performance.now() + 550; });
+  canvas.addEventListener("touchstart", (e) => {
+    if (e.touches.length) onMove(e.touches[0].clientX, e.touches[0].clientY);
+    surprisedUntil = performance.now() + 550;
+  }, { passive: true });
+
+  function ease(current, target, dt, rate) {
+    const a = Math.min(1, rate * dt);
+    return current + (target - current) * a;
+  }
+
+  function retargetWander(wanderR) {
+    if (wanderR <= 0) { lookTarget = { x: 0, y: 0 }; return; }
+    const ang = Math.random() * Math.PI * 2;
+    const rad = Math.random() * wanderR;
+    lookTarget = { x: Math.cos(ang) * rad, y: Math.sin(ang) * rad };
+  }
+
+  function drawEye(now) {
+    const dt = Math.min(0.1, (now - lastT) / 1000);
+    lastT = now;
+
+    const active = pointer !== null && now - lastMoveT < 3000;
+    const surprised = now < surprisedUntil;
+    const pose = surprised ? SURPRISED : (active ? ALERT : IDLE);
+
+    let targetBrightness = pose.brightness;
+    if (!active && !surprised) {
+      targetBrightness *= 0.85 + 0.15 * Math.sin(now / 1000 * 1.2);
+    }
+
+    // Look target: follow the pointer (clamped), else wander lazily.
+    let lookRate = 7.0;
+    if (surprised && pointer) {
+      const maxR = PANEL / 2 - pose.core - 14;
+      const dx = pointer.x, dy = pointer.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      const clamped = Math.min(dist, maxR);
+      lookTarget = { x: (dx / dist) * clamped, y: (dy / dist) * clamped };
+    } else if (active) {
+      const maxR = PANEL / 2 - pose.core - 14;
+      const dx = pointer.x, dy = pointer.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      const clamped = Math.min(dist, maxR);
+      lookTarget = { x: (dx / dist) * clamped, y: (dy / dist) * clamped };
+    } else {
+      lookRate = 3.0;
+      if (now >= nextWander) {
+        retargetWander(pose.wander);
+        nextWander = now + 1200 + Math.random() * 2300;
+      }
+    }
+
+    look.x = ease(look.x, lookTarget.x, dt, lookRate);
+    look.y = ease(look.y, lookTarget.y, dt, lookRate);
+    brightness = ease(brightness, targetBrightness, dt, 6.0);
+    coreR = ease(coreR, pose.core, dt, 6.0);
+    haloR = ease(haloR, pose.halo, dt, 6.0);
+
+    render();
+    requestAnimationFrame(drawEye);
+  }
+
+  function render() {
+    ctx.clearRect(0, 0, PANEL, PANEL);
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(CENTER, CENTER, PANEL / 2 - 3, 0, Math.PI * 2);
+    ctx.clip();
+
+    // panel base
+    ctx.fillStyle = "#050505";
+    ctx.fillRect(0, 0, PANEL, PANEL);
+
+    const b = Math.max(0, Math.min(1, brightness));
+
+    // faint inner wash, centered on the panel
+    const washR = haloR * 1.1;
+    const wash = ctx.createRadialGradient(CENTER, CENTER, 0, CENTER, CENTER, washR);
+    wash.addColorStop(0, `rgba(255,70,30,${0.10 * b})`);
+    wash.addColorStop(1, "rgba(255,70,30,0)");
+    ctx.fillStyle = wash;
+    ctx.fillRect(0, 0, PANEL, PANEL);
+
+    // halo ring, fixed at panel center
+    ctx.save();
+    ctx.shadowColor = `rgba(255,60,20,${0.55 * b})`;
+    ctx.shadowBlur = 18;
+    ctx.strokeStyle = `rgba(255,70,30,${0.38 * b})`;
+    ctx.lineWidth = Math.max(3, haloR * 0.16);
+    ctx.beginPath();
+    ctx.arc(CENTER, CENTER, haloR, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+
+    // core, follows the look offset
+    const cx = CENTER + look.x, cy = CENTER + look.y;
+    ctx.save();
+    ctx.shadowColor = `rgba(255,90,30,${0.9 * b})`;
+    ctx.shadowBlur = 24;
+    const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(6, coreR));
+    core.addColorStop(0, `rgba(255,245,230,${b})`);
+    core.addColorStop(0.35, `rgba(255,150,60,${0.95 * b})`);
+    core.addColorStop(0.75, `rgba(255,60,20,${0.75 * b})`);
+    core.addColorStop(1, "rgba(255,40,10,0)");
+    ctx.fillStyle = core;
+    ctx.beginPath();
+    ctx.arc(cx, cy, Math.max(6, coreR), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.restore();
+  }
+
+  requestAnimationFrame(drawEye);
+})();
+</script>
+</body>
+</html>

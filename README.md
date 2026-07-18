@@ -6,6 +6,9 @@ people (OpenCV, Jetson Orin Nano Super 8GB), converses via fully local LLM
 (MicroPython). Swappable 3D-printed shells via per-shell calibration
 profiles. Full digital twin in `/sim`.
 
+**[Meet the eye &rarr;](https://dlux2015.github.io/NPC/)** — its actual display
+renderer, ported to your browser. Follows your cursor.
+
 Licensed under the [GNU GPLv3](LICENSE).
 
 - **Plan of record:** `ORCHESTRATION.md`
